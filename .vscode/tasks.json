@@ -1,0 +1,32 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Pump: Dump",
+      "type": "shell",
+      "command": "uv",
+      "args": [
+        "run",
+        "tools/capture_dump.py"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Pump: Dump (No Erase)",
+      "type": "shell",
+      "command": "uv",
+      "args": [
+        "run",
+        "tools/capture_dump.py",
+        "--no-erase"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    }
+  ]
+}
