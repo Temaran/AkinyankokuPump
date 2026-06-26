@@ -345,20 +345,18 @@ void GardenCell::UpdateWateringState()
 {
     if (_hasConnected && !_hasError)
     {
-        if (_shouldWater)
-        {
-            if (_moistnessNorm > _stopWateringThresholdNorm)
-            {
-                _shouldWater = false;
-            }
-        }
-        else if (_moistnessNorm < _startWateringThresholdNorm)
-        {
-            _shouldWater = true;
-        }
+        _shouldWater = GardenLogic::ShouldRequestWater(
+            _moistnessNorm,
+            _startWateringThresholdNorm,
+            _stopWateringThresholdNorm,
+            _shouldWater);
+    }
+    else
+    {
+        _shouldWater = false;
     }
 
-    if (!_shouldWater || _hasError || !_hasConnected)
+    if (!_shouldWater)
     {
         SetSolenoidOutput(false);
     }

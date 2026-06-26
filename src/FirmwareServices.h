@@ -148,6 +148,7 @@ namespace GardenPump
     void sendWifiUpdate(WiFiClient& client, const String& requestLine);
     void sendCloudLogEndpointUpdate(WiFiClient& client, const String& requestLine);
     void sendCloudLogTokenUpdate(WiFiClient& client, const String& requestLine);
+    void sendCloudLogTest(WiFiClient& client);
     void sendTextDump(WiFiClient& client, bool eraseAfterDump);
     void sendNotFound(WiFiClient& client);
     void handleWebClient();

@@ -68,6 +68,17 @@ def moisture_dot_count(moisture_norm: float, start_threshold_norm: float, stop_t
     return 1 if moisture_norm < midpoint_norm else 2
 
 
+def should_request_water(
+    moisture_norm: float,
+    start_threshold_norm: float,
+    stop_threshold_norm: float,
+    was_requesting_water: bool,
+) -> bool:
+    if was_requesting_water:
+        return moisture_norm < stop_threshold_norm
+    return moisture_norm < start_threshold_norm
+
+
 def vh400_vwc_percent_from_voltage(voltage: float) -> float:
     if voltage <= 1.1:
         return (10.0 * voltage) - 1.0

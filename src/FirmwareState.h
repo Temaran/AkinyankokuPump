@@ -55,7 +55,16 @@ namespace GardenPump
     constexpr int PipelineLogEntries = 12;
     constexpr int PipelineLogReadSlots = 5;
     constexpr float PipeInsideDiameterMm = 4.2f;
-    constexpr float WaterEstimateVelocityMps = 1.0f;
+    constexpr float SpigotFlowCalibrationVolumeMl = 700.0f;
+    constexpr float SpigotFlowCalibrationSeconds = 11.0f;
+    constexpr float TenMeterFlowCalibrationVolumeMl = 700.0f;
+    constexpr float TenMeterFlowCalibrationSeconds = 23.5f;
+    constexpr float DripperSectionLengthM = 7.0f;
+    constexpr int DripperCount = 10;
+    constexpr float DripperSectionFullFlowEquivalentM = 2.7f;
+    constexpr float WaterEstimateFlowMlPerMinute = 1620.0f;
+    constexpr float WaterEstimateFlowMlPerSecond = WaterEstimateFlowMlPerMinute / 60.0f;
+    constexpr float WaterEstimateVelocityMps = 1.9f;
     constexpr unsigned long CloudLogEvaluateIntervalMs = 60UL * 1000UL;
     constexpr unsigned long CloudLogHeartbeatMs = 10UL * 60UL * 1000UL;
     constexpr float CloudLogMoistureDeltaPercent = 1.0f;

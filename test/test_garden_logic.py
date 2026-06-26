@@ -61,6 +61,14 @@ class MoistureMathTests(unittest.TestCase):
         self.assertEqual(logic.moisture_dot_count(0.40, 0.4, 0.4), 3)
         self.assertEqual(logic.moisture_dot_count(0.40, 0.4, 0.39), 3)
 
+    def test_watering_request_uses_hysteresis_band(self) -> None:
+        self.assertTrue(logic.should_request_water(0.19, 0.20, 0.40, False))
+        self.assertFalse(logic.should_request_water(0.31, 0.20, 0.40, False))
+        self.assertTrue(logic.should_request_water(0.31, 0.20, 0.40, True))
+        self.assertTrue(logic.should_request_water(0.39, 0.20, 0.40, True))
+        self.assertFalse(logic.should_request_water(0.40, 0.20, 0.40, True))
+        self.assertFalse(logic.should_request_water(0.61, 0.40, 0.60, True))
+
 
 class Vh400Tests(unittest.TestCase):
     def test_adc_reading_to_millivolts_uses_5v_10bit_reference(self) -> None:
@@ -201,6 +209,7 @@ class SourceIntegrationTests(unittest.TestCase):
             "IsValidCalibrationConfig",
             "IsValidZoneSensor",
             "MoistureDotCount",
+            "ShouldRequestWater",
             "Vh400VwcPercentFromVoltage",
             "NextWateringZoneAfter",
             "IsEuropeStockholmDst",
@@ -237,6 +246,22 @@ class SourceIntegrationTests(unittest.TestCase):
         self.assertNotIn("c.relay?'on':'off'", text)
         self.assertNotIn("z.relay?'on':'off'", text)
 
+    def test_dashboard_uses_clear_threshold_hysteresis_labels(self) -> None:
+        text = WEB_UI_CPP.read_text()
+        self.assertIn("Start below", text)
+        self.assertIn("Stop above", text)
+        self.assertNotIn("Low marker", text)
+        self.assertNotIn("Stop watering", text)
+        self.assertNotIn("Start Watering", text)
+        self.assertNotIn("Stop Watering", text)
+
+    def test_watering_state_uses_hysteresis_band(self) -> None:
+        text = GARDEN_CELL_CPP.read_text()
+        self.assertIn("GardenLogic::ShouldRequestWater(", text)
+        self.assertIn("_startWateringThresholdNorm", text)
+        self.assertIn("_stopWateringThresholdNorm", text)
+        self.assertIn("_shouldWater);", text)
+
     def test_stats_tab_uses_uplot_with_expected_default_series(self) -> None:
         text = WEB_UI_CPP.read_text()
         self.assertIn("data-tab=\\\"stats\\\"", text)
@@ -259,13 +284,24 @@ class SourceIntegrationTests(unittest.TestCase):
         ui = WEB_UI_CPP.read_text()
 
         self.assertIn("PipeInsideDiameterMm = 4.2f", state)
-        self.assertIn("WaterEstimateVelocityMps = 1.0f", state)
+        self.assertIn("SpigotFlowCalibrationVolumeMl = 700.0f", state)
+        self.assertIn("SpigotFlowCalibrationSeconds = 11.0f", state)
+        self.assertIn("TenMeterFlowCalibrationVolumeMl = 700.0f", state)
+        self.assertIn("TenMeterFlowCalibrationSeconds = 23.5f", state)
+        self.assertIn("DripperSectionLengthM = 7.0f", state)
+        self.assertIn("DripperCount = 10", state)
+        self.assertIn("DripperSectionFullFlowEquivalentM = 2.7f", state)
+        self.assertIn("WaterEstimateFlowMlPerMinute = 1620.0f", state)
+        self.assertIn("WaterEstimateFlowMlPerSecond = WaterEstimateFlowMlPerMinute / 60.0f", state)
+        self.assertIn("WaterEstimateVelocityMps = 1.9f", state)
         self.assertIn("ZoneWaterOpenMs[zoneIdx] += elapsedMs", scheduler)
+        self.assertIn("return WaterEstimateFlowMlPerSecond", scheduler)
         self.assertIn("accountZoneWaterRuntime();", api)
         self.assertIn("waterOpenSeconds", api)
         self.assertIn("estimatedWaterMl", api)
         self.assertIn("water estimate", ui)
         self.assertIn("water runtime", ui)
+        self.assertIn("flowMlps", ui)
 
     def test_irrigation_led_rendering_uses_assigned_zone_sensor(self) -> None:
         text = MAIN_CPP.read_text()
@@ -313,6 +349,10 @@ class SourceIntegrationTests(unittest.TestCase):
         self.assertIn("updateCloudLogger();", network)
         self.assertIn("SET_LOG_ENDPOINT <https-url>", serial)
         self.assertIn("LOG_TEST", serial)
+        self.assertIn("Test cloud log", WEB_UI_CPP.read_text())
+        self.assertIn("cloudLog.textContent", WEB_UI_CPP.read_text())
+        self.assertIn("void sendCloudLogTest(WiFiClient& client)", services)
+        self.assertIn('requestLine.startsWith(F("GET /api/test_cloud_log"))', api)
         self.assertIn('requestLine.startsWith(F("GET /api/history"))', api)
 
 

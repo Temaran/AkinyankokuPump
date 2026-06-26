@@ -88,6 +88,15 @@ namespace GardenLogic
         return moistureNorm < midpointNorm ? 1 : 2;
     }
 
+    inline bool ShouldRequestWater(float moistureNorm, float startThresholdNorm, float stopThresholdNorm, bool wasRequestingWater)
+    {
+        if (wasRequestingWater)
+        {
+            return moistureNorm < stopThresholdNorm;
+        }
+        return moistureNorm < startThresholdNorm;
+    }
+
     inline float Vh400VwcPercentFromVoltage(float voltage)
     {
         if (voltage <= 1.1f)

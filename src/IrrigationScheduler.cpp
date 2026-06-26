@@ -6,10 +6,7 @@ namespace GardenPump
 {
     float estimatedWaterFlowMlPerSecond()
     {
-        constexpr float Pi = 3.14159265f;
-        const float radiusMm = PipeInsideDiameterMm / 2.0f;
-        const float areaMm2 = Pi * radiusMm * radiusMm;
-        return areaMm2 * WaterEstimateVelocityMps;
+        return WaterEstimateFlowMlPerSecond;
     }
 
     float estimatedZoneWaterMl(int zoneIdx)

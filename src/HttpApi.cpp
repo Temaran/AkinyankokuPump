@@ -898,6 +898,15 @@ namespace GardenPump
         client.println(F("Cloud log token saved."));
     }
 
+    void sendCloudLogTest(WiFiClient& client)
+    {
+        sendHttpHeaders(client, "text/plain; charset=utf-8");
+        client.println(F("Sending cloud log test row..."));
+        const bool ok = sendCloudLogNow(true);
+        client.println(ok ? F("Cloud log sent.") : F("Cloud log send failed."));
+        printCloudLogStatus(client);
+    }
+
     void sendTextDump(WiFiClient& client, bool eraseAfterDump)
     {
         sendHttpHeaders(client, "text/plain; charset=utf-8");
@@ -1065,6 +1074,10 @@ namespace GardenPump
         else if (requestLine.startsWith(F("GET /api/set_cloud_log_token")))
         {
             sendCloudLogTokenUpdate(client, requestLine);
+        }
+        else if (requestLine.startsWith(F("GET /api/test_cloud_log")))
+        {
+            sendCloudLogTest(client);
         }
         else if (requestLine.startsWith(F("GET /api/dump_no_erase")))
         {
