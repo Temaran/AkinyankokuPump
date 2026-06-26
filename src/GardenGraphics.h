@@ -2,16 +2,16 @@ using GardenFrame = const int[3][3];
 
 constexpr GardenFrame GardenNotConnectedIcon =
 {
+    {1, 0, 1},
     {0, 1, 0},
-    {1, 1, 1},
-    {0, 1, 0}
+    {1, 0, 1}
 };
 
 constexpr GardenFrame GardenErrorIcon =
 {
+    {1, 1, 1},
     {1, 0, 1},
-    {0, 1, 0},
-    {1, 0, 1}
+    {1, 1, 1}
 };
 
 constexpr GardenFrame GardenNotWateringIcon =
