@@ -1,83 +1,18 @@
 #include "GardenCell.h"
+
+#include <string.h>
+
+#include "BaseSensor.h"
 #include "GardenLogic.h"
+#include "SeesawSensor.h"
 #include "Utils.h"
+#include "VH400Sensor.h"
 
 namespace
 {
-    constexpr int kSensorReadCount = 5;
-    constexpr int kMinValidSensorReads = 3;
     constexpr int kMaxConsecutiveReadErrors = 10;
     constexpr int kFilterPreviousWeight = 3;
-    constexpr int kReadDelayMs = 1;
-    constexpr int kMaxStableReadSpread = 80;
-    constexpr int kVh400SensorReadCount = 1;
-    constexpr int kVh400ReadDelayMs = 0;
-    constexpr int kVh400SettlingReadCount = 6;
-    constexpr int kVh400SettlingDelayUs = 250;
-    constexpr int kVh400MaxOutputMv = 3000;
-    constexpr int kVh400MaxConnectedMv = 3050;
-    constexpr int kVh400ConnectionScoreMax = 12;
-    constexpr int kVh400ConnectionThreshold = 8;
-    constexpr int kVh400DisconnectionThreshold = 3;
-    constexpr int kVh400GoodReadingScore = 2;
-    constexpr int kVh400BadReadingScore = 1;
-
-    bool IsValidCapacitanceReading(int reading)
-    {
-        return reading > 0 && reading <= GardenLogic::MaxCalibrationRaw;
-    }
-
-    void SortReadings(int* readings, int count)
-    {
-        for (int idx = 1; idx < count; ++idx)
-        {
-            const int value = readings[idx];
-            int insertIdx = idx - 1;
-            while (insertIdx >= 0 && readings[insertIdx] > value)
-            {
-                readings[insertIdx + 1] = readings[insertIdx];
-                insertIdx--;
-            }
-            readings[insertIdx + 1] = value;
-        }
-    }
-
-    bool FindStableClusterMedian(const int* readings, int count, int& median, int& spread)
-    {
-        if (count < kMinValidSensorReads)
-        {
-            return false;
-        }
-
-        int bestStart = 0;
-        int bestSpread = readings[kMinValidSensorReads - 1] - readings[0];
-        for (int start = 1; (start + kMinValidSensorReads) <= count; ++start)
-        {
-            const int candidateSpread = readings[start + kMinValidSensorReads - 1] - readings[start];
-            if (candidateSpread < bestSpread)
-            {
-                bestSpread = candidateSpread;
-                bestStart = start;
-            }
-        }
-
-        spread = bestSpread;
-        median = readings[bestStart + (kMinValidSensorReads / 2)];
-        return bestSpread <= kMaxStableReadSpread;
-    }
-
-    int ReadAnalogSettled(int analogPin)
-    {
-        pinMode(analogPin, INPUT);
-        int reading = 0;
-        for (int idx = 0; idx < kVh400SettlingReadCount; ++idx)
-        {
-            reading = analogRead(analogPin);
-            delayMicroseconds(kVh400SettlingDelayUs);
-        }
-        return analogRead(analogPin);
-    }
-
+    constexpr unsigned long kWateringAnimationRevolutionMs = 1000;
 }
 
 void GardenCell::Initialize(int ledMatrixStartX, int ledMatrixStartY, int solanoidAddress, int sensorAddress, int analogPin)
@@ -90,7 +25,7 @@ void GardenCell::Initialize(int ledMatrixStartX, int ledMatrixStartY, int solano
 
     pinMode(_solanoidAddress, OUTPUT);
     digitalWrite(_solanoidAddress, LOW);
-    pinMode(_analogPin, INPUT);
+    VH400Sensor::ConfigureInput(_analogPin);
     SetSensorInputMode(_sensorInputMode);
 }
 
@@ -146,40 +81,17 @@ void GardenCell::RefreshSeesawSensor()
         return;
     }
 
-    int validReadings[kSensorReadCount] = {};
-    int validCount = 0;
-    int lastReading = 0;
-    _debugReadCount = 0;
-    _debugStableCluster = false;
-    _debugSelectedReading = 0;
-    for (int idx = 0; idx < kSensorReadCount; ++idx)
-    {
-        lastReading = _soilSensor.touchRead(0);
-        if (_debugReadCount < 8)
-        {
-            _debugReadings[_debugReadCount] = lastReading;
-            _debugReadCount++;
-        }
-        if (IsValidCapacitanceReading(lastReading))
-        {
-            validReadings[validCount] = lastReading;
-            validCount++;
-        }
-        delay(kReadDelayMs);
-    }
+    const SeesawSensor::Reading reading = SeesawSensor::Read(_soilSensor);
+    memcpy(_debugReadings, reading.debugReadings, sizeof(_debugReadings));
+    _debugReadCount = reading.debugReadCount;
+    _debugStableCluster = reading.stableCluster;
+    _debugSelectedReading = reading.selectedReading;
+    _lastReadSpread = reading.spread;
+    _acceptedReadCount = reading.acceptedReadCount;
 
-    SortReadings(validReadings, validCount);
-    int capacitanceReading = 0;
-    int stableSpread = 0;
-    const bool hasStableCluster = FindStableClusterMedian(validReadings, validCount, capacitanceReading, stableSpread);
-    _debugStableCluster = hasStableCluster;
-    _debugSelectedReading = hasStableCluster ? capacitanceReading : lastReading;
-    _lastReadSpread = stableSpread;
-    _acceptedReadCount = hasStableCluster ? kMinValidSensorReads : 0;
-
-    if (validCount < kMinValidSensorReads)
+    if (reading.validReadCount < BaseSensor::MinValidSensorReads)
     {
-        _lastCapacitanceReading = lastReading;
+        _lastCapacitanceReading = reading.lastReading;
         _consecutiveReadErrors++;
         _hasError = _consecutiveReadErrors >= kMaxConsecutiveReadErrors;
         if (!_hasFilteredReading)
@@ -189,29 +101,29 @@ void GardenCell::RefreshSeesawSensor()
         return;
     }
 
-    if (!hasStableCluster)
+    if (!reading.stableCluster)
     {
-        _lastCapacitanceReading = validReadings[validCount / 2];
+        _lastCapacitanceReading = reading.selectedReading;
         _debugSelectedReading = _lastCapacitanceReading;
         _consecutiveReadErrors++;
         _hasError = !_hasFilteredReading && _consecutiveReadErrors >= kMaxConsecutiveReadErrors;
         return;
     }
 
-    _lastCapacitanceReading = capacitanceReading;
-    _debugSelectedReading = capacitanceReading;
+    _lastCapacitanceReading = reading.selectedReading;
+    _debugSelectedReading = reading.selectedReading;
     _consecutiveReadErrors = 0;
     _hasError = false;
 
     if (!_hasFilteredReading)
     {
-        _filteredCapacitanceReading = capacitanceReading;
+        _filteredCapacitanceReading = reading.selectedReading;
         _hasFilteredReading = true;
     }
     else
     {
         _filteredCapacitanceReading =
-            ((_filteredCapacitanceReading * kFilterPreviousWeight) + capacitanceReading) / (kFilterPreviousWeight + 1);
+            ((_filteredCapacitanceReading * kFilterPreviousWeight) + reading.selectedReading) / (kFilterPreviousWeight + 1);
     }
 
     const float capacitanceRange = static_cast<float>(_wetCalibrationRaw - _dryCalibrationRaw);
@@ -223,40 +135,17 @@ void GardenCell::RefreshSeesawSensor()
 
 void GardenCell::RefreshVh400Sensor()
 {
-    int validReadings[kVh400SensorReadCount] = {};
-    int validCount = 0;
-    int lastReading = 0;
-    _debugReadCount = 0;
-    _debugStableCluster = false;
-    _debugSelectedReading = 0;
-    for (int idx = 0; idx < kVh400SensorReadCount; ++idx)
-    {
-        lastReading = ReadAnalogSettled(_analogPin);
-        if (_debugReadCount < 8)
-        {
-            _debugReadings[_debugReadCount] = lastReading;
-            _debugReadCount++;
-        }
-        if (lastReading >= 0 && lastReading <= GardenLogic::AdcMaxReading)
-        {
-            validReadings[validCount] = lastReading;
-            validCount++;
-        }
-        delay(kVh400ReadDelayMs);
-    }
+    const VH400Sensor::Reading reading = VH400Sensor::Read(_analogPin);
+    memcpy(_debugReadings, reading.debugReadings, sizeof(_debugReadings));
+    _debugReadCount = reading.debugReadCount;
+    _debugStableCluster = reading.stableCluster;
+    _debugSelectedReading = reading.selectedReading;
+    _lastReadSpread = reading.spread;
+    _acceptedReadCount = reading.acceptedReadCount;
 
-    SortReadings(validReadings, validCount);
-    int analogReading = lastReading;
-    int stableSpread = 0;
-    const bool hasStableCluster = FindStableClusterMedian(validReadings, validCount, analogReading, stableSpread);
-    _debugStableCluster = hasStableCluster;
-    _debugSelectedReading = analogReading;
-    _lastReadSpread = stableSpread;
-    _acceptedReadCount = validCount;
-
-    if (validCount == 0)
+    if (reading.validReadCount == 0)
     {
-        _lastCapacitanceReading = lastReading;
+        _lastCapacitanceReading = reading.lastReading;
         _consecutiveReadErrors++;
         _hasConnected = false;
         _hasError = true;
@@ -268,14 +157,14 @@ void GardenCell::RefreshVh400Sensor()
         return;
     }
 
-    _lastCapacitanceReading = analogReading;
-    _debugSelectedReading = analogReading;
-    _filteredCapacitanceReading = analogReading;
+    _lastCapacitanceReading = reading.selectedReading;
+    _debugSelectedReading = reading.selectedReading;
+    _filteredCapacitanceReading = reading.selectedReading;
     _hasFilteredReading = true;
-    _vh400ConnectionScore = hasStableCluster ? kVh400ConnectionScoreMax : kVh400ConnectionThreshold;
+    _vh400ConnectionScore = reading.stableCluster ? VH400Sensor::ConnectionScoreMax : VH400Sensor::ConnectionThreshold;
     _consecutiveReadErrors = 0;
 
-    _lastVoltageMv = constrain(GardenLogic::AnalogReadingToMillivolts(analogReading), 0, kVh400MaxOutputMv);
+    _lastVoltageMv = constrain(GardenLogic::AnalogReadingToMillivolts(reading.selectedReading), 0, VH400Sensor::MaxOutputMv);
     _hasConnected = true;
     _hasError = false;
     const float voltage = static_cast<float>(_lastVoltageMv) / 1000.0f;
@@ -290,11 +179,11 @@ void GardenCell::RefreshSimulatedSensor()
     _consecutiveReadErrors = 0;
     _hasFilteredReading = true;
     _lastReadSpread = 0;
-    _acceptedReadCount = kMinValidSensorReads;
+    _acceptedReadCount = BaseSensor::MinValidSensorReads;
     _moistnessNorm = Utils::Clamp(static_cast<float>(_simulatedMoisturePercent) / 100.0f, 0.0f, 1.0f);
     _lastCapacitanceReading = static_cast<int>(_moistnessNorm * GardenLogic::MaxCalibrationRaw + 0.5f);
     _filteredCapacitanceReading = _lastCapacitanceReading;
-    _lastVoltageMv = static_cast<int>(_moistnessNorm * kVh400MaxOutputMv + 0.5f);
+    _lastVoltageMv = static_cast<int>(_moistnessNorm * VH400Sensor::MaxOutputMv + 0.5f);
     _lastVwcPercent = _moistnessNorm * 100.0f;
     _debugReadCount = 1;
     _debugReadings[0] = _lastCapacitanceReading;
@@ -316,7 +205,7 @@ int GardenCell::ReadRawCapacitance()
 
     if (_sensorInputMode == SensorInputMode::Vh400)
     {
-        return ReadAnalogSettled(_analogPin);
+        return VH400Sensor::ReadAnalogSettled(_analogPin);
     }
 
     if (!_hasConnected)
@@ -324,7 +213,7 @@ int GardenCell::ReadRawCapacitance()
         return 0;
     }
 
-    return _soilSensor.touchRead(0);
+    return SeesawSensor::ReadRaw(_soilSensor);
 }
 
 uint32_t GardenCell::GetSensorVersion()
@@ -334,7 +223,7 @@ uint32_t GardenCell::GetSensorVersion()
         return 0;
     }
 
-    return _soilSensor.getVersion();
+    return SeesawSensor::GetVersion(_soilSensor);
 }
 
 float GardenCell::GetSensorTemperatureC()
@@ -344,7 +233,7 @@ float GardenCell::GetSensorTemperatureC()
         return 0.0f;
     }
 
-    return _soilSensor.getTemp();
+    return SeesawSensor::GetTemperatureC(_soilSensor);
 }
 
 uint8_t GardenCell::GetMoistureByte() const
@@ -400,7 +289,7 @@ void GardenCell::SetSensorInputMode(SensorInputMode mode)
         _hasConnected = false;
         _hasError = false;
         _shouldWater = false;
-        pinMode(_analogPin, INPUT);
+        VH400Sensor::ConfigureInput(_analogPin);
         SetSolenoidOutput(false);
         return;
     }
@@ -409,11 +298,11 @@ void GardenCell::SetSensorInputMode(SensorInputMode mode)
     {
         _hasConnected = false;
         _hasError = false;
-        pinMode(_analogPin, INPUT);
+        VH400Sensor::ConfigureInput(_analogPin);
         return;
     }
 
-    _hasConnected = _soilSensor.begin(_sensorAddress);
+    _hasConnected = SeesawSensor::Begin(_soilSensor, _sensorAddress);
     _hasError = false;
 }
 
@@ -496,8 +385,9 @@ void GardenCell::RenderFrom(ArduinoLEDMatrix& ledMatrix, const GardenCell& sourc
     }
     else if (sourceCell._shouldWater)
     {
+        const unsigned long frameMs = kWateringAnimationRevolutionMs / GardenWateringAnimLength;
+        _currentAnimFrame = static_cast<int>((millis() / frameMs) % GardenWateringAnimLength);
         sourceFrame = &GardenWateringAnim[_currentAnimFrame];
-        _currentAnimFrame = (_currentAnimFrame + 1) % GardenWateringAnimLength;
     }
     else
     {

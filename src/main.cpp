@@ -8,6 +8,8 @@
 
 #include "GardenCell.h"
 #include "GardenLogic.h"
+#include "VH400Sensor.h"
+#include "WebUI.h"
 
 namespace
 {
@@ -41,6 +43,7 @@ namespace
     constexpr uint16_t MaxCalibrationRaw = 1023;
     constexpr unsigned long StatsScreenPeriodMs = 2500;
     constexpr unsigned long WifiRetryMs = 30000;
+    constexpr unsigned long WebClientReadTimeoutMs = 50;
     constexpr unsigned long NtpRetryMs = 300000;
     constexpr unsigned long NtpStartupRetryMs = 10000;
     constexpr unsigned long StartupTimeSyncTimeoutMs = 60000;
@@ -49,8 +52,6 @@ namespace
     constexpr int NtpPacketSize = 48;
     constexpr int DebugAdcMaxReading = 1023;
     constexpr int DebugAnalogReferenceMv = 5000;
-    constexpr int AnalogSettlingReadCount = 6;
-    constexpr int AnalogSettlingDelayUs = 250;
     constexpr unsigned long PipelineLogIntervalMs = 1000;
     constexpr int PipelineLogEntries = 12;
     constexpr int PipelineLogReadSlots = 5;
@@ -308,7 +309,6 @@ namespace
     void sendNtpPacket();
     void printWifiStatus();
     void sendHttpHeaders(WiFiClient& client, const char* contentType);
-    void sendHomePage(WiFiClient& client);
     void sendJsonStatus(WiFiClient& client);
     void sendTextDiagnostics(WiFiClient& client, bool force);
     void printRawSensorDiagnostics(Print& out);
@@ -2081,44 +2081,6 @@ namespace
         client.println();
     }
 
-    void sendHomePage(WiFiClient& client)
-    {
-        sendHttpHeaders(client, "text/html; charset=utf-8");
-        client.println(F("<!doctype html><html><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"));
-        client.println(F("<title>Garden Pump</title><style>body{font-family:system-ui;margin:0;background:#f5f7f4;color:#172018}header{background:#234b36;color:white;padding:16px 20px}main{padding:16px;max-width:960px;margin:auto}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.slotgrid{display:grid;grid-template-columns:repeat(2,minmax(220px,1fr));gap:10px;max-width:760px}.card{background:white;border:1px solid #d9dfd7;border-radius:8px;padding:12px}.big{font-size:28px;font-weight:700}.bar{height:10px;background:#dfe6dc;border-radius:999px;overflow:hidden}.fill{height:100%;background:#2f7d4f;width:0}.field{display:block;margin:6px 0}.field input[type=number]{width:72px}.source{display:flex;gap:10px;flex-wrap:wrap;margin:8px 0}.hint{margin:6px 0 12px;color:#4c5a4c}select{max-width:100%}button,a.btn{display:inline-block;margin:4px 4px 4px 0;padding:8px 10px;border:1px solid #9cad9b;border-radius:6px;background:white;color:#172018;text-decoration:none}pre{white-space:pre-wrap;background:#111;color:#eee;padding:12px;border-radius:8px;overflow:auto}@media(max-width:640px){.slotgrid{grid-template-columns:1fr}}</style></head><body>"));
-        client.println(F("<header><h1>Garden Pump</h1><div id=\"sub\">Loading...</div></header><main>"));
-        client.println(F("<div class=\"grid\"><div class=\"card\"><div>Clock</div><div id=\"clock\">-</div></div><div class=\"card\"><div>WiFi</div><div id=\"wifi\">-</div></div></div>"));
-        client.println(F("<h2>Watering zone override</h2><div class=\"card\"><label><input type=\"radio\" name=\"forcedZone\" value=\"-1\"> off</label><label><input type=\"radio\" name=\"forcedZone\" value=\"0\"> zone 1</label><label><input type=\"radio\" name=\"forcedZone\" value=\"1\"> zone 2</label><label><input type=\"radio\" name=\"forcedZone\" value=\"2\"> zone 3</label><label><input type=\"radio\" name=\"forcedZone\" value=\"3\"> zone 4</label><label class=\"field\">Switch interval (seconds) <input id=\"zoneSwitchInterval\" type=\"number\" min=\"10\" max=\"86400\"></label><button id=\"saveZoneSwitchInterval\">Save interval</button></div>"));
-        client.println(F("<h2>Irrigation zones</h2><div class=\"slotgrid\" id=\"irrigationZones\"></div>"));
-        client.println(F("<h2>Simulation</h2><div class=\"card\" id=\"simulationControls\"><label><input id=\"simulationEnabled\" type=\"checkbox\"> simulate sensor moisture</label><div class=\"slotgrid\" id=\"simulationCells\"></div><button id=\"saveSimulation\">Apply simulation</button></div>"));
-        client.println(F("<h2>Sensors</h2><div class=\"hint\">Use Analog diag for raw A0..A3 reads.</div><div class=\"slotgrid\" id=\"sensors\"></div><h2>Controls</h2>"));
-        client.println(F("<a class=\"btn\" href=\"/api/diag\">DIAG</a><a class=\"btn\" href=\"/api/analog_diag\">Analog diag</a><a class=\"btn\" href=\"/api/pipeline_log\">Pipeline log</a><a class=\"btn\" href=\"/api/sync_time\">Sync time</a>"));
-        client.println(F("<h2>Output</h2><pre id=\"out\"></pre><h2>Pipeline</h2><button class=\"btn\" id=\"refreshPipeline\">Refresh pipeline</button><pre id=\"pipeline\">Loading...</pre><script>"));
-        client.println(F("let forcedBusyUntil=0,sensorBusyUntil=0,zoneBusyUntil=0,simulationBusyUntil=0,statusBusy=false,apiBusy=false,pipelineBusy=false"));
-        client.println(F("function esc(v){return encodeURIComponent(v)}"));
-        client.println(F("async function api(p){if(apiBusy)return;apiBusy=true;out.textContent='Working...';try{let r=await fetch(p);out.textContent=await r.text()}catch(e){out.textContent='Request failed: '+e}finally{apiBusy=false;status()}}"));
-        client.println(F("function card(c){let pct=Math.max(0,Math.min(100,c.moisturePercent||0));let h='<div class=\"card\"><b>Slot '+(c.index+1)+'</b><div>source '+c.sensorSource+' / '+c.analogPin+' ('+c.analogPinNumber+')</div><div>internal cell '+c.index+' addr '+c.address+'</div><div>'+(c.connected?'connected':'not connected')+' / '+(c.error?'error':'ok')+'</div>';"));
-        client.println(F("if(c.sensorSource==='vh400'){h+='<div>voltage '+c.voltageMv+' mV / VWC '+c.vwcPercent.toFixed(1)+'%</div><div>confidence '+c.vh400ConnectionScore+' / spread '+c.readSpread+' / accepted '+c.acceptedReads+'</div>'}else if(c.sensorSource==='seesaw'){h+='<div>raw '+c.raw+' / filtered '+c.filteredRaw+'</div><div>spread '+c.readSpread+' / accepted '+c.acceptedReads+'</div>'}else{h+='<div>not installed</div>'}"));
-        client.println(F("h+='<div>relay '+(c.relay?'open':'closed')+'</div><div class=\"bar\"><div class=\"fill\" style=\"width:'+pct+'%\"></div></div><div>moisture '+pct.toFixed(1)+'%</div>';"));
-        client.println(F("h+='<div class=\"source\"><label><input type=\"radio\" name=\"source'+c.index+'\" value=\"unused\" '+(c.sensorSource==='unused'?'checked':'')+'> not used</label><label><input type=\"radio\" name=\"source'+c.index+'\" value=\"seesaw\" '+(c.sensorSource==='seesaw'?'checked':'')+'> seesaw</label><label><input type=\"radio\" name=\"source'+c.index+'\" value=\"vh400\" '+(c.sensorSource==='vh400'?'checked':'')+'> VH400</label></div>';"));
-        client.println(F("h+='<label class=\"field\">Start Watering <input id=\"st'+c.index+'\" type=\"number\" min=\"0\" max=\"100\" value=\"'+c.startThreshold+'\"> %</label><label class=\"field\">Stop Watering <input id=\"sp'+c.index+'\" type=\"number\" min=\"0\" max=\"100\" value=\"'+c.stopThreshold+'\"> %</label><button onclick=\"setThreshold('+c.index+')\">Save watering</button>';"));
-        client.println(F("if(c.sensorSource==='seesaw'){h+='<div>calibration raw '+c.dryCalibrationRaw+'..'+c.wetCalibrationRaw+'</div><label>dry <input id=\"dry'+c.index+'\" type=\"number\" min=\"0\" max=\"1022\" placeholder=\"'+c.dryCalibrationRaw+'\"></label><label> wet <input id=\"wet'+c.index+'\" type=\"number\" min=\"1\" max=\"1023\" placeholder=\"'+c.wetCalibrationRaw+'\"></label><button onclick=\"setCalibration('+c.index+')\">Save cal</button><button onclick=\"useCurrentDry('+c.index+','+c.filteredRaw+')\">Use dry</button><button onclick=\"useCurrentWet('+c.index+','+c.filteredRaw+')\">Use wet</button>'}h+='</div>';return h}"));
-        client.println(F("function simCard(c){return '<div><label>slot '+(c.index+1)+' <input id=\"sim'+c.index+'\" type=\"range\" min=\"0\" max=\"100\" value=\"'+c.simulatedMoisturePercent+'\"></label><input id=\"simn'+c.index+'\" type=\"number\" min=\"0\" max=\"100\" value=\"'+c.simulatedMoisturePercent+'\"></div>'}"));
-        client.println(F("function zoneCard(z){let h='<div class=\"card\"><b>Zone '+(z.index+1)+'</b><div>relay '+(z.relay?'open':'closed')+'</div><div>'+(z.needsWater?'needs water':'not requesting water')+'</div>';h+='<label class=\"field\">Sensor <select name=\"zoneSensor'+z.index+'\">';for(let i=0;i<4;i++)h+='<option value=\"'+i+'\" '+(z.sensor===i?'selected':'')+'>slot '+(i+1)+'</option>';h+='</select></label></div>';return h}"));
-        client.println(F("function visualCells(cells){let order=[0,2,1,3];return cells.slice().sort((a,b)=>order.indexOf(a.index)-order.indexOf(b.index))}"));
-        client.println(F("async function pipelineLog(){if(pipelineBusy||apiBusy)return;pipelineBusy=true;try{let r=await fetch('/api/pipeline_latest');let t=await r.text();pipeline.textContent=(t+'\\n'+pipeline.textContent).slice(0,16000)}catch(e){pipeline.textContent='Pipeline request failed: '+e+'\\n'+pipeline.textContent}finally{pipelineBusy=false}}async function pipelineHistory(){if(pipelineBusy||apiBusy)return;pipelineBusy=true;try{let r=await fetch('/api/pipeline_log');pipeline.textContent=await r.text()}catch(e){pipeline.textContent='Pipeline history failed: '+e}finally{pipelineBusy=false}}"));
-        client.println(F("async function status(){if(statusBusy||apiBusy)return;statusBusy=true;try{let r=await fetch('/api/status');let s=await r.json();let vc=visualCells(s.cells);clock.textContent=s.time+(s.timeSynced?'':' (not synced)');wifi.textContent=(s.wifiConfigured?s.wifiSsid:'not configured')+' '+s.ip+' '+s.rssi+' dBm';if(!zoneSwitchInterval.value)zoneSwitchInterval.value=s.zoneSwitchIntervalSeconds;"));
-        client.println(F("if(Date.now()>forcedBusyUntil)document.querySelectorAll('input[name=forcedZone]').forEach(x=>x.checked=Number(x.value)===s.activeIrrigationZone);if(Date.now()>zoneBusyUntil&&!irrigationZones.matches(':focus-within'))irrigationZones.innerHTML=visualCells(s.zones).map(zoneCard).join('');if(Date.now()>simulationBusyUntil&&!simulationControls.matches(':focus-within')){simulationEnabled.checked=s.simulationEnabled;simulationCells.innerHTML=vc.map(simCard).join('');document.querySelectorAll('#simulationCells input[type=range]').forEach(x=>x.oninput=()=>{document.getElementById('simn'+x.id.substring(3)).value=x.value});document.querySelectorAll('#simulationCells input[type=number]').forEach(x=>x.oninput=()=>{document.getElementById('sim'+x.id.substring(4)).value=x.value})}let state=!s.operationsStarted?'waiting for clock':(s.outOfMemory?'log full':'logging available');if(s.simulationEnabled)state+=' (simulation)';if(s.activeIrrigationZone>=0)state+=' (zone '+(s.activeIrrigationZone+1)+' open)';if(s.startupTimeWaitTimedOut)state+=' (time sync timed out)';sub.textContent='http://'+s.ip+' - '+state;if(Date.now()>sensorBusyUntil&&!sensors.matches(':focus-within'))sensors.innerHTML=vc.map(card).join('')}finally{statusBusy=false}}"));
-        client.println(F("async function setThreshold(i){sensorBusyUntil=Date.now()+3000;api('/api/set_threshold?cell='+i+'&start='+esc(document.getElementById('st'+i).value)+'&stop='+esc(document.getElementById('sp'+i).value))}"));
-        client.println(F("function inputValueOrPlaceholder(id){let e=document.getElementById(id);return e.value||e.placeholder}async function setCalibration(i){sensorBusyUntil=Date.now()+3000;api('/api/set_calibration?cell='+i+'&dry='+esc(inputValueOrPlaceholder('dry'+i))+'&wet='+esc(inputValueOrPlaceholder('wet'+i)))}"));
-        client.println(F("function useCurrentDry(i,v){document.getElementById('dry'+i).value=v;setCalibration(i)}function useCurrentWet(i,v){document.getElementById('wet'+i).value=v;setCalibration(i)}"));
-        client.println(F("async function setSensorSource(i,v){sensorBusyUntil=Date.now()+3000;api('/api/set_sensor_source?cell='+i+'&source='+esc(v))}"));
-        client.println(F("async function setZoneSensor(i,v){zoneBusyUntil=Date.now()+3000;api('/api/set_zone_sensor?zone='+i+'&sensor='+esc(v))}"));
-        client.println(F("async function applySimulation(){simulationBusyUntil=Date.now()+3000;let p='/api/set_simulation?enabled='+(simulationEnabled.checked?1:0);for(let i=0;i<4;i++)p+='&c'+i+'='+esc(document.getElementById('simn'+i).value);api(p)}"));
-        client.println(F("document.querySelectorAll('a.btn').forEach(a=>a.onclick=e=>{e.preventDefault();api(a.getAttribute('href'))});document.querySelectorAll('input[name=forcedZone]').forEach(x=>x.onchange=()=>{forcedBusyUntil=Date.now()+3000;api('/api/set_forced_irrigation?zone='+esc(x.value))});sensors.onchange=e=>{let n=e.target.name||'';if(n.startsWith('source'))setSensorSource(Number(n.substring(6)),e.target.value)};irrigationZones.onchange=e=>{let n=e.target.name||'';if(n.startsWith('zoneSensor'))setZoneSensor(Number(n.substring(10)),e.target.value)};saveSimulation.onclick=applySimulation;saveZoneSwitchInterval.onclick=()=>api('/api/set_zone_switch_interval?seconds='+esc(zoneSwitchInterval.value));refreshPipeline.onclick=pipelineHistory;status();pipelineLog();setInterval(status,500);setInterval(pipelineLog,1000)"));
-        client.println(F("</script></main></body></html>"));
-    }
-
     void sendJsonStatus(WiFiClient& client)
     {
         sendHttpHeaders(client, "application/json");
@@ -2710,14 +2672,7 @@ namespace
 
     int readAnalogSettled(int analogPin)
     {
-        pinMode(analogPin, INPUT);
-        int reading = 0;
-        for (int idx = 0; idx < AnalogSettlingReadCount; ++idx)
-        {
-            reading = analogRead(analogPin);
-            delayMicroseconds(AnalogSettlingDelayUs);
-        }
-        return analogRead(analogPin);
+        return VH400Sensor::ReadAnalogSettled(analogPin);
     }
 
     void sendThresholdUpdate(WiFiClient& client, const String& requestLine)
@@ -2996,7 +2951,7 @@ namespace
 
         String requestLine = "";
         unsigned long start = millis();
-        while (client.connected() && (millis() - start) < 1000)
+        while (client.connected() && (millis() - start) < WebClientReadTimeoutMs)
         {
             if (!client.available())
             {
@@ -3025,7 +2980,7 @@ namespace
 
         if (requestLine.startsWith(F("GET / ")) || requestLine.startsWith(F("GET /HTTP")))
         {
-            sendHomePage(client);
+            WebUI::SendHomePage(client);
         }
         else if (requestLine.startsWith(F("GET /api/status")))
         {
@@ -3425,8 +3380,11 @@ void loop()
             DataState.latest[updatedCell] = Cells[updatedCell].GetMoistureByte();
         }
         updateIrrigationScheduler();
-        const int sensorIdx = GardenLogic::CoerceZoneSensor(updatedCell, Config.zoneSensor[updatedCell]);
-        Cells[updatedCell].RenderFrom(LedMatrix, Cells[sensorIdx]);
+        for (int zoneIdx = 0; zoneIdx < NrCells; ++zoneIdx)
+        {
+            const int sensorIdx = GardenLogic::CoerceZoneSensor(zoneIdx, Config.zoneSensor[zoneIdx]);
+            Cells[zoneIdx].RenderFrom(LedMatrix, Cells[sensorIdx]);
+        }
         CurrentCell = (CurrentCell + 1) % NrCells;
         LedMatrix.endDraw();
         delay(UpdateDelayMs);

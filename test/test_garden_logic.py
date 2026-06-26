@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MAIN_CPP = ROOT / "src" / "main.cpp"
 GARDEN_CELL_CPP = ROOT / "src" / "GardenCell.cpp"
 GARDEN_LOGIC_H = ROOT / "src" / "GardenLogic.h"
+WEB_UI_CPP = ROOT / "src" / "WebUI.cpp"
 
 
 class ValidationTests(unittest.TestCase):
@@ -72,6 +73,26 @@ class Vh400Tests(unittest.TestCase):
         self.assertAlmostEqual(logic.vh400_vwc_percent_from_voltage(2.2), 50.014, places=3)
 
 
+class BaseSensorTests(unittest.TestCase):
+    def test_capacitance_reading_validation(self) -> None:
+        self.assertFalse(logic.is_valid_capacitance_reading(0))
+        self.assertTrue(logic.is_valid_capacitance_reading(1))
+        self.assertTrue(logic.is_valid_capacitance_reading(1023))
+        self.assertFalse(logic.is_valid_capacitance_reading(1024))
+
+    def test_stable_cluster_uses_tightest_three_readings(self) -> None:
+        stable, median, spread = logic.find_stable_cluster_median([900, 405, 400, 410, 950])
+        self.assertTrue(stable)
+        self.assertEqual(median, 405)
+        self.assertEqual(spread, 10)
+
+    def test_unstable_cluster_reports_best_spread_but_not_stable(self) -> None:
+        stable, median, spread = logic.find_stable_cluster_median([100, 250, 420])
+        self.assertFalse(stable)
+        self.assertEqual(median, 250)
+        self.assertEqual(spread, 320)
+
+
 class SchedulerTests(unittest.TestCase):
     def test_count_watering_zones_needed(self) -> None:
         self.assertEqual(logic.count_watering_zones_needed([False, False, False, False]), 0)
@@ -125,6 +146,28 @@ class SourceIntegrationTests(unittest.TestCase):
         self.assertIn('#include "GardenLogic.h"', MAIN_CPP.read_text())
         self.assertIn('#include "GardenLogic.h"', GARDEN_CELL_CPP.read_text())
 
+    def test_sensor_code_is_split_into_dedicated_modules(self) -> None:
+        for path in [
+            ROOT / "src" / "BaseSensor.h",
+            ROOT / "src" / "BaseSensor.cpp",
+            ROOT / "src" / "SeesawSensor.h",
+            ROOT / "src" / "SeesawSensor.cpp",
+            ROOT / "src" / "VH400Sensor.h",
+            ROOT / "src" / "VH400Sensor.cpp",
+        ]:
+            self.assertTrue(path.exists(), f"{path} should exist")
+
+        cell_text = GARDEN_CELL_CPP.read_text()
+        self.assertIn('#include "SeesawSensor.h"', cell_text)
+        self.assertIn('#include "VH400Sensor.h"', cell_text)
+
+    def test_web_ui_is_split_out_of_main(self) -> None:
+        self.assertTrue((ROOT / "src" / "WebUI.h").exists())
+        self.assertTrue(WEB_UI_CPP.exists())
+        self.assertIn('#include "WebUI.h"', MAIN_CPP.read_text())
+        self.assertIn("WebUI::SendHomePage(client)", MAIN_CPP.read_text())
+        self.assertNotIn("void sendHomePage", MAIN_CPP.read_text())
+
     def test_shared_logic_header_contains_expected_public_rules(self) -> None:
         text = GARDEN_LOGIC_H.read_text()
         for name in [
@@ -139,12 +182,12 @@ class SourceIntegrationTests(unittest.TestCase):
             self.assertIn(name, text)
 
     def test_dashboard_zone_order_matches_physical_layout(self) -> None:
-        text = MAIN_CPP.read_text()
+        text = WEB_UI_CPP.read_text()
         self.assertIn("let order=[0,2,1,3]", text)
         self.assertIn("visualCells(s.zones).map(zoneCard)", text)
 
     def test_dashboard_does_not_expose_removed_maintenance_controls(self) -> None:
-        text = MAIN_CPP.read_text()
+        text = WEB_UI_CPP.read_text()
         removed_labels = [
             "<h2>Logging</h2>",
             "data gathering</label>",
@@ -161,7 +204,7 @@ class SourceIntegrationTests(unittest.TestCase):
             self.assertNotIn(label, text)
 
     def test_dashboard_uses_open_closed_relay_language(self) -> None:
-        text = MAIN_CPP.read_text()
+        text = WEB_UI_CPP.read_text()
         self.assertIn("c.relay?'open':'closed'", text)
         self.assertIn("z.relay?'open':'closed'", text)
         self.assertNotIn("c.relay?'on':'off'", text)
@@ -169,8 +212,20 @@ class SourceIntegrationTests(unittest.TestCase):
 
     def test_irrigation_led_rendering_uses_assigned_zone_sensor(self) -> None:
         text = MAIN_CPP.read_text()
-        self.assertIn("GardenLogic::CoerceZoneSensor(updatedCell, Config.zoneSensor[updatedCell])", text)
-        self.assertRegex(text, re.compile(r"Cells\[updatedCell\]\.RenderFrom\(LedMatrix,\s*Cells\[sensorIdx\]\)"))
+        self.assertIn("for (int zoneIdx = 0; zoneIdx < NrCells; ++zoneIdx)", text)
+        self.assertIn("GardenLogic::CoerceZoneSensor(zoneIdx, Config.zoneSensor[zoneIdx])", text)
+        self.assertRegex(text, re.compile(r"Cells\[zoneIdx\]\.RenderFrom\(LedMatrix,\s*Cells\[sensorIdx\]\)"))
+
+    def test_watering_animation_is_time_based_one_revolution_per_second(self) -> None:
+        text = GARDEN_CELL_CPP.read_text()
+        self.assertIn("kWateringAnimationRevolutionMs = 1000", text)
+        self.assertIn("millis() / frameMs", text)
+        self.assertNotIn("_currentAnimFrame = (_currentAnimFrame + 1)", text)
+
+    def test_web_client_read_timeout_stays_short_for_led_responsiveness(self) -> None:
+        text = MAIN_CPP.read_text()
+        self.assertIn("WebClientReadTimeoutMs = 50", text)
+        self.assertIn("(millis() - start) < WebClientReadTimeoutMs", text)
 
 
 if __name__ == "__main__":

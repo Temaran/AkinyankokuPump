@@ -12,6 +12,8 @@ CELL_COUNT = 4
 MAX_CALIBRATION_RAW = 1023
 ADC_MAX_READING = 1023
 ANALOG_REFERENCE_MV = 5000
+MIN_VALID_SENSOR_READS = 3
+MAX_STABLE_READ_SPREAD = 80
 
 
 def clamp_float(value: float, low: float, high: float) -> float:
@@ -80,6 +82,27 @@ def vh400_vwc_percent_from_voltage(voltage: float) -> float:
 
 def analog_reading_to_millivolts(reading: int) -> int:
     return int(reading * ANALOG_REFERENCE_MV / ADC_MAX_READING)
+
+
+def is_valid_capacitance_reading(reading: int) -> bool:
+    return 0 < reading <= MAX_CALIBRATION_RAW
+
+
+def find_stable_cluster_median(readings: list[int]) -> tuple[bool, int, int]:
+    if len(readings) < MIN_VALID_SENSOR_READS:
+        return False, 0, 0
+
+    sorted_readings = sorted(readings)
+    best_start = 0
+    best_spread = sorted_readings[MIN_VALID_SENSOR_READS - 1] - sorted_readings[0]
+    for start in range(1, len(sorted_readings) - MIN_VALID_SENSOR_READS + 1):
+        candidate_spread = sorted_readings[start + MIN_VALID_SENSOR_READS - 1] - sorted_readings[start]
+        if candidate_spread < best_spread:
+            best_spread = candidate_spread
+            best_start = start
+
+    median = sorted_readings[best_start + (MIN_VALID_SENSOR_READS // 2)]
+    return best_spread <= MAX_STABLE_READ_SPREAD, median, best_spread
 
 
 def count_watering_zones_needed(zone_needs_water: list[bool]) -> int:
