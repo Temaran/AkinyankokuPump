@@ -1,17 +1,15 @@
 #include "GardenCell.h"
+#include "GardenLogic.h"
 #include "Utils.h"
 
 namespace
 {
-    constexpr int kMaxCapacitance = 1023;
     constexpr int kSensorReadCount = 5;
     constexpr int kMinValidSensorReads = 3;
     constexpr int kMaxConsecutiveReadErrors = 10;
     constexpr int kFilterPreviousWeight = 3;
     constexpr int kReadDelayMs = 1;
     constexpr int kMaxStableReadSpread = 80;
-    constexpr int kAdcMaxReading = 1023;
-    constexpr int kAnalogReferenceMv = 5000;
     constexpr int kVh400SensorReadCount = 1;
     constexpr int kVh400ReadDelayMs = 0;
     constexpr int kVh400SettlingReadCount = 6;
@@ -26,7 +24,7 @@ namespace
 
     bool IsValidCapacitanceReading(int reading)
     {
-        return reading > 0 && reading <= kMaxCapacitance;
+        return reading > 0 && reading <= GardenLogic::MaxCalibrationRaw;
     }
 
     void SortReadings(int* readings, int count)
@@ -68,32 +66,6 @@ namespace
         return bestSpread <= kMaxStableReadSpread;
     }
 
-    float Vh400VwcPercentFromVoltage(float voltage)
-    {
-        if (voltage <= 1.1f)
-        {
-            return (10.0f * voltage) - 1.0f;
-        }
-        if (voltage <= 1.3f)
-        {
-            return (25.0f * voltage) - 17.5f;
-        }
-        if (voltage <= 1.82f)
-        {
-            return (48.08f * voltage) - 47.5f;
-        }
-        if (voltage <= 2.2f)
-        {
-            return (26.32f * voltage) - 7.89f;
-        }
-        return (62.5f * voltage) - 87.5f;
-    }
-
-    int AnalogReadingToMillivolts(int reading)
-    {
-        return static_cast<int>(static_cast<long>(reading) * kAnalogReferenceMv / kAdcMaxReading);
-    }
-
     int ReadAnalogSettled(int analogPin)
     {
         pinMode(analogPin, INPUT);
@@ -106,24 +78,6 @@ namespace
         return analogRead(analogPin);
     }
 
-    int MoistureDotCount(float moistnessNorm, float startThresholdNorm, float stopThresholdNorm)
-    {
-        if (moistnessNorm < startThresholdNorm)
-        {
-            return 0;
-        }
-        if (moistnessNorm >= stopThresholdNorm)
-        {
-            return 3;
-        }
-        if (stopThresholdNorm <= startThresholdNorm)
-        {
-            return 1;
-        }
-
-        const float midpointNorm = startThresholdNorm + ((stopThresholdNorm - startThresholdNorm) * 0.5f);
-        return moistnessNorm < midpointNorm ? 1 : 2;
-    }
 }
 
 void GardenCell::Initialize(int ledMatrixStartX, int ledMatrixStartY, int solanoidAddress, int sensorAddress, int analogPin)
@@ -283,7 +237,7 @@ void GardenCell::RefreshVh400Sensor()
             _debugReadings[_debugReadCount] = lastReading;
             _debugReadCount++;
         }
-        if (lastReading >= 0 && lastReading <= kAdcMaxReading)
+        if (lastReading >= 0 && lastReading <= GardenLogic::AdcMaxReading)
         {
             validReadings[validCount] = lastReading;
             validCount++;
@@ -321,11 +275,11 @@ void GardenCell::RefreshVh400Sensor()
     _vh400ConnectionScore = hasStableCluster ? kVh400ConnectionScoreMax : kVh400ConnectionThreshold;
     _consecutiveReadErrors = 0;
 
-    _lastVoltageMv = constrain(AnalogReadingToMillivolts(analogReading), 0, kVh400MaxOutputMv);
+    _lastVoltageMv = constrain(GardenLogic::AnalogReadingToMillivolts(analogReading), 0, kVh400MaxOutputMv);
     _hasConnected = true;
     _hasError = false;
     const float voltage = static_cast<float>(_lastVoltageMv) / 1000.0f;
-    _lastVwcPercent = Utils::Clamp(Vh400VwcPercentFromVoltage(voltage), 0.0f, 100.0f);
+    _lastVwcPercent = Utils::Clamp(GardenLogic::Vh400VwcPercentFromVoltage(voltage), 0.0f, 100.0f);
     _moistnessNorm = Utils::Clamp(_lastVwcPercent / 100.0f, 0.0f, 1.0f);
 }
 
@@ -338,7 +292,7 @@ void GardenCell::RefreshSimulatedSensor()
     _lastReadSpread = 0;
     _acceptedReadCount = kMinValidSensorReads;
     _moistnessNorm = Utils::Clamp(static_cast<float>(_simulatedMoisturePercent) / 100.0f, 0.0f, 1.0f);
-    _lastCapacitanceReading = static_cast<int>(_moistnessNorm * kMaxCapacitance + 0.5f);
+    _lastCapacitanceReading = static_cast<int>(_moistnessNorm * GardenLogic::MaxCalibrationRaw + 0.5f);
     _filteredCapacitanceReading = _lastCapacitanceReading;
     _lastVoltageMv = static_cast<int>(_moistnessNorm * kVh400MaxOutputMv + 0.5f);
     _lastVwcPercent = _moistnessNorm * 100.0f;
@@ -401,8 +355,7 @@ uint8_t GardenCell::GetMoistureByte() const
     }
 
     // Reserve 255 so 0xFFFFFFFF can mean "unwritten" in EEPROM.
-    const int scaled = static_cast<int>(_moistnessNorm * 254.0f + 0.5f);
-    return static_cast<uint8_t>(Utils::Clamp(static_cast<float>(scaled), 0.0f, 254.0f));
+    return static_cast<uint8_t>(GardenLogic::MoistureByteFromNorm(_moistnessNorm));
 }
 
 void GardenCell::SetWateringThresholds(float startNorm, float stopNorm)
@@ -420,8 +373,8 @@ void GardenCell::SetWateringThresholds(float startNorm, float stopNorm)
 
 void GardenCell::SetMoistureCalibration(int dryRaw, int wetRaw)
 {
-    dryRaw = constrain(dryRaw, 0, kMaxCapacitance - 1);
-    wetRaw = constrain(wetRaw, dryRaw + 1, kMaxCapacitance);
+    dryRaw = constrain(dryRaw, 0, GardenLogic::MaxCalibrationRaw - 1);
+    wetRaw = constrain(wetRaw, dryRaw + 1, GardenLogic::MaxCalibrationRaw);
     _dryCalibrationRaw = dryRaw;
     _wetCalibrationRaw = wetRaw;
 }
@@ -555,7 +508,7 @@ void GardenCell::RenderFrom(ArduinoLEDMatrix& ledMatrix, const GardenCell& sourc
 
     if (sourceCell._hasConnected && !sourceCell._hasError)
     {
-        const int moistureDots = MoistureDotCount(
+        const int moistureDots = GardenLogic::MoistureDotCount(
             sourceCell._moistnessNorm,
             sourceCell._startWateringThresholdNorm,
             sourceCell._stopWateringThresholdNorm);

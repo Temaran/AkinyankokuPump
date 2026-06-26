@@ -1,5 +1,18 @@
 # Local Agent Notes
 
+## Core workflow
+
+- Before changing firmware behavior, add or update tests under `test/` for the behavior being touched.
+- After every code change, run the host-side regression suite from the repo root:
+
+```powershell
+.venv\Scripts\python.exe test\run_tests.py
+```
+
+- Do not call work complete until the test suite passes, or explicitly report why it could not be run.
+- The Python tests mirror pure firmware rules in `src/GardenLogic.h` and include source-level checks for the embedded dashboard. Keep the tests and `GardenLogic.h` in sync when refactoring logic.
+- If PlatformIO becomes available, also run the firmware build for `uno_r4_wifi` before release-level changes.
+
 ## Garden pump EEPROM dump
 
 - Board environment: `uno_r4_wifi` in `platformio.ini`.

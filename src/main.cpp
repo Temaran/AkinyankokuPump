@@ -7,6 +7,7 @@
 #include "Arduino_LED_Matrix.h"
 
 #include "GardenCell.h"
+#include "GardenLogic.h"
 
 namespace
 {
@@ -749,7 +750,8 @@ namespace
 
     bool setCellThresholds(int cellIdx, uint8_t startPercent, uint8_t stopPercent)
     {
-        if (cellIdx < 0 || cellIdx >= NrCells || startPercent > 100 || stopPercent > 100 || stopPercent < startPercent)
+        if (!GardenLogic::IsValidCellIndex(cellIdx)
+            || !GardenLogic::IsValidThresholdConfig(startPercent, stopPercent))
         {
             return false;
         }
@@ -763,7 +765,8 @@ namespace
 
     bool setCellCalibration(int cellIdx, uint16_t dryRaw, uint16_t wetRaw)
     {
-        if (cellIdx < 0 || cellIdx >= NrCells || dryRaw >= wetRaw || wetRaw > MaxCalibrationRaw)
+        if (!GardenLogic::IsValidCellIndex(cellIdx)
+            || !GardenLogic::IsValidCalibrationConfig(dryRaw, wetRaw))
         {
             return false;
         }
@@ -792,7 +795,7 @@ namespace
 
     bool setZoneSensor(int zoneIdx, int sensorIdx)
     {
-        if (zoneIdx < 0 || zoneIdx >= NrCells || sensorIdx < 0 || sensorIdx >= NrCells)
+        if (!GardenLogic::IsValidZoneSensor(zoneIdx, sensorIdx))
         {
             return false;
         }
@@ -857,13 +860,13 @@ namespace
 
     bool zoneNeedsWater(int zoneIdx)
     {
-        if (zoneIdx < 0 || zoneIdx >= NrCells)
+        if (!GardenLogic::IsValidCellIndex(zoneIdx))
         {
             return false;
         }
 
         const int sensorIdx = Config.zoneSensor[zoneIdx];
-        if (sensorIdx < 0 || sensorIdx >= NrCells)
+        if (!GardenLogic::IsValidCellIndex(sensorIdx))
         {
             return false;
         }
@@ -873,30 +876,24 @@ namespace
 
     int countWateringZonesNeeded()
     {
-        int count = 0;
+        bool needsWater[NrCells] = {};
         for (int zoneIdx = 0; zoneIdx < NrCells; ++zoneIdx)
         {
-            if (zoneNeedsWater(zoneIdx))
-            {
-                count++;
-            }
+            needsWater[zoneIdx] = zoneNeedsWater(zoneIdx);
         }
 
-        return count;
+        return GardenLogic::CountWateringZonesNeeded(needsWater, NrCells);
     }
 
     int nextWateringZoneAfter(int startZone)
     {
-        for (int offset = 1; offset <= NrCells; ++offset)
+        bool needsWater[NrCells] = {};
+        for (int zoneIdx = 0; zoneIdx < NrCells; ++zoneIdx)
         {
-            const int zoneIdx = (startZone + offset + NrCells) % NrCells;
-            if (zoneNeedsWater(zoneIdx))
-            {
-                return zoneIdx;
-            }
+            needsWater[zoneIdx] = zoneNeedsWater(zoneIdx);
         }
 
-        return -1;
+        return GardenLogic::NextWateringZoneAfter(startZone, needsWater, NrCells);
     }
 
     void applyRelayOutputs(int activeZone)
@@ -1145,62 +1142,33 @@ namespace
 
     bool isLeapYear(int year)
     {
-        return ((year % 4) == 0 && (year % 100) != 0) || (year % 400) == 0;
+        return GardenLogic::IsLeapYear(year);
     }
 
     int daysInMonth(int year, int month)
     {
-        static const int days[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
-        if (month == 2 && isLeapYear(year))
-        {
-            return 29;
-        }
-        return days[month - 1];
+        return GardenLogic::DaysInMonth(year, month);
     }
 
     int dayOfWeek(int year, int month, int day)
     {
-        static const int offsets[] = {0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4};
-        if (month < 3)
-        {
-            --year;
-        }
-        return (year + year / 4 - year / 100 + year / 400 + offsets[month - 1] + day) % 7;
+        return GardenLogic::DayOfWeek(year, month, day);
     }
 
     int lastSundayOfMonth(int year, int month)
     {
-        int day = daysInMonth(year, month);
-        while (dayOfWeek(year, month, day) != 0)
-        {
-            --day;
-        }
-        return day;
+        return GardenLogic::LastSundayOfMonth(year, month);
     }
 
     uint32_t unixTimeUtc(int year, int month, int day, int hour, int minute, int second)
     {
-        uint32_t days = 0;
-        for (int y = 1970; y < year; ++y)
-        {
-            days += isLeapYear(y) ? 366UL : 365UL;
-        }
-        for (int m = 1; m < month; ++m)
-        {
-            days += daysInMonth(year, m);
-        }
-        days += static_cast<uint32_t>(day - 1);
-        return (((days * 24UL) + static_cast<uint32_t>(hour)) * 60UL + static_cast<uint32_t>(minute)) * 60UL
-            + static_cast<uint32_t>(second);
+        return GardenLogic::UnixTimeUtc(year, month, day, hour, minute, second);
     }
 
     bool isEuropeStockholmDst(uint32_t utcUnixTime)
     {
         RTCTime utcTime(static_cast<time_t>(utcUnixTime));
-        const int year = utcTime.getYear();
-        const uint32_t dstStart = unixTimeUtc(year, 3, lastSundayOfMonth(year, 3), 1, 0, 0);
-        const uint32_t dstEnd = unixTimeUtc(year, 10, lastSundayOfMonth(year, 10), 1, 0, 0);
-        return utcUnixTime >= dstStart && utcUnixTime < dstEnd;
+        return GardenLogic::IsEuropeStockholmDst(utcTime.getYear(), utcUnixTime);
     }
 
     uint32_t europeStockholmOffsetSeconds(uint32_t utcUnixTime)
@@ -3457,7 +3425,7 @@ void loop()
             DataState.latest[updatedCell] = Cells[updatedCell].GetMoistureByte();
         }
         updateIrrigationScheduler();
-        const int sensorIdx = Config.zoneSensor[updatedCell] < NrCells ? Config.zoneSensor[updatedCell] : updatedCell;
+        const int sensorIdx = GardenLogic::CoerceZoneSensor(updatedCell, Config.zoneSensor[updatedCell]);
         Cells[updatedCell].RenderFrom(LedMatrix, Cells[sensorIdx]);
         CurrentCell = (CurrentCell + 1) % NrCells;
         LedMatrix.endDraw();
