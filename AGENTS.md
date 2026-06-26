@@ -21,12 +21,15 @@
 - The firmware requests DHCP hostname `garden-pump`, starts a local HTTP dashboard on port 80 after Wi-Fi connects, and prints the board IP on Serial. Try `http://garden-pump/`; if the router does not resolve DHCP hostnames, use a router DHCP reservation for a fixed IP.
 - Web endpoints:
   - `/api/status`: JSON status, sensor readings, relay states, clock sync state
+  - `/api/history?limit=144`: proxy recent Google Sheet log rows for the Stats tab without exposing the token in browser JS
   - `/api/set_wifi?ssid=your-ssid&password=your-password`: update persistent Wi-Fi credentials when already connected
   - `/api/set_threshold?cell=0&start=40&stop=60`: update persistent watering thresholds
   - `/api/set_calibration?cell=0&dry=430&wet=1023`: update persistent Seesaw raw dry/wet calibration
   - `/api/set_sensor_source?cell=0&source=vh400`: update persistent sensor source. Use `source=seesaw` or `source=vh400`.
   - `/api/set_interval?seconds=60`: update persistent sample interval
   - `/api/set_i2c_clock?hz=10000`: update and immediately apply persistent I2C clock
+  - `/api/set_cloud_log_endpoint?url=https%3A%2F%2Fscript.google.com%2F...%2Fexec`: update persistent Google Apps Script endpoint
+  - `/api/set_cloud_log_token?token=...`: update persistent Google Apps Script token
   - `/api/set_forced_irrigation?zone=-1`: runtime forced irrigation override. Use `zone=0..3` for zones 1..4. Not persisted; clears on reboot.
   - `/api/set_simulation?enabled=1&c0=30&c1=40&c2=50&c3=60`: runtime simulated sensor moisture percentages. Not persisted; clears on reboot.
   - `/api/diag`: live diagnostics unless EEPROM is full
@@ -37,8 +40,9 @@
   - `/api/sync_time`: retry NTP sync
   - `/api/clear_log?confirm=yes`: erase EEPROM and reset
 - RTC is synced from NTP when Wi-Fi works. The dashboard and serial human-readable time are displayed as Europe/Stockholm with CET/CEST applied. If NTP has not synced, session timestamps are not meaningful.
-- EEPROM layout: addresses `0..191` are reserved for persistent pump config; log data starts at address `192`.
-- Persistent config currently stores Wi-Fi credentials, per-cell watering thresholds, per-cell Seesaw raw dry/wet calibration, per-cell sensor source, sample interval, and I2C clock. Threshold defaults: start watering at `40%`, stop at `60%`; calibration defaults: dry `324`, wet `1023`; sensor source default: `seesaw`; sample interval default: `60` seconds; I2C clock default: `10000` Hz.
+- EEPROM layout: addresses `0..511` are reserved for persistent pump config; log data starts at address `512`.
+- Persistent config currently stores Wi-Fi credentials, per-cell watering thresholds, per-cell Seesaw raw dry/wet calibration, per-cell sensor source, per-zone sensor assignment, zone switch interval, sample interval, I2C clock, and Google Apps Script cloud logging endpoint/token. Threshold defaults: start watering at `40%`, stop at `60%`; calibration defaults: dry `324`, wet `1023`; sensor source default: `seesaw`; zone sensor defaults: zone 1..4 use slot 1..4; sample interval default: `60` seconds; I2C clock default: `10000` Hz.
+- Cloud logging is configured over Serial with `SET_LOG_ENDPOINT <https-url>` and `SET_LOG_TOKEN <token>`. Use `LOG_STATUS` to inspect, `LOG_TEST` to send one row, and `CLEAR_LOG_ENDPOINT` to remove the endpoint/token. Normal cloud logging evaluates once per minute, writes on meaningful change, and otherwise writes only after 10 minutes without a successful log row.
 - VH400 sensor mode reads analog pins `A0..A3` for cells `0..3`. The firmware assumes the Arduino analog reference is `5V` and converts the VH400 `0..3V` output to VWC using Vegetronix's published piecewise equations. Wire VH400 bare to GND, red to a valid sensor supply, and black output to the matching analog input.
 - VH400 uses the shared watering thresholds directly as moisture percentages from `0..100`. Seesaw uses raw dry/wet calibration to turn capacitance into the same moisture percentage scale.
 - Physical/display slot layout is `1 3` on the top row and `2 4` on the bottom row. VH400 analog mapping is slot 1 -> `A0`, slot 2 -> `A1`, slot 3 -> `A2`, and slot 4 -> `A3`. The Arduino LED matrix API uses row-major coordinates with `y=0` at the top, so top-row slots use the smaller LED Y offset in firmware.
@@ -49,7 +53,10 @@
 - Serial command `SET_INTERVAL <seconds>` saves the sample interval to EEPROM config. Valid range: `10..86400` seconds.
 - Serial command `SET_I2C_CLOCK <hz>` saves and applies the I2C clock. Valid range: `1000..400000` Hz.
 - Serial command `SET_FORCED_ZONE <-1..3>` controls the runtime forced irrigation override. `-1` disables it; `0..3` forces one solenoid open and closes all others.
-- Log clearing commands erase only the log area from address `192` onward and preserve config settings.
+- Serial command `SET_LOG_ENDPOINT <https-url>` saves the Google Apps Script web app endpoint for long-term logging.
+- Serial command `SET_LOG_TOKEN <token>` saves the shared secret token for long-term logging.
+- Serial command `LOG_TEST` sends one cloud log row immediately using cached sensor/relay/water state.
+- Log clearing commands erase only the log area from address `512` onward and preserve config settings.
 - Normal live/data-gathering operation polls one sensor per loop cycle. EEPROM logging uses cached rolling values and does not poll every sensor in a burst.
 - Firmware command `DUMP` dumps EEPROM, erases it with `eraseEntireLog()`, then resets the board. Do not use it when the user asks to preserve data.
 - Firmware command `DUMP_NO_ERASE` dumps EEPROM and keeps the EEPROM contents intact.
@@ -82,3 +89,13 @@ moisture=24 52 0 raw=390 467 0 connected=0x3 error=0x4
 
 - Live diagnostics can be requested with `DIAG`; it does not modify EEPROM.
 - Raw sensor bus diagnostics can be requested with `RAW_DIAG`; it prints repeated untouched `touchRead(0)` values before filtering/normalization.
+
+## Core workflow
+
+- After any code change, run the Python test suite before handing work back:
+
+```powershell
+.venv\Scripts\python.exe test\run_tests.py
+```
+
+- If firmware compilation tools become available, also build the `uno_r4_wifi` PlatformIO environment before deployment.

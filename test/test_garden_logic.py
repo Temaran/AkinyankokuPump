@@ -12,6 +12,8 @@ MAIN_CPP = ROOT / "src" / "main.cpp"
 GARDEN_CELL_CPP = ROOT / "src" / "GardenCell.cpp"
 GARDEN_LOGIC_H = ROOT / "src" / "GardenLogic.h"
 WEB_UI_CPP = ROOT / "src" / "WebUI.cpp"
+HTTP_API_CPP = ROOT / "src" / "HttpApi.cpp"
+FIRMWARE_STATE_H = ROOT / "src" / "FirmwareState.h"
 
 
 class ValidationTests(unittest.TestCase):
@@ -161,11 +163,35 @@ class SourceIntegrationTests(unittest.TestCase):
         self.assertIn('#include "SeesawSensor.h"', cell_text)
         self.assertIn('#include "VH400Sensor.h"', cell_text)
 
+    def test_firmware_subsystems_are_split_out_of_main(self) -> None:
+        expected_modules = [
+            "FirmwareState.h",
+            "FirmwareServices.h",
+            "PumpConfigStore.cpp",
+            "IrrigationScheduler.cpp",
+            "EepromLog.cpp",
+            "NetworkTime.cpp",
+            "SerialCommands.cpp",
+            "HttpApi.cpp",
+            "CloudLogger.cpp",
+            "LedStatusDisplay.cpp",
+            "Diagnostics.cpp",
+        ]
+        for name in expected_modules:
+            self.assertTrue((ROOT / "src" / name).exists(), f"{name} should exist")
+
+        main_text = MAIN_CPP.read_text()
+        self.assertLess(len(main_text.splitlines()), 220)
+        self.assertNotIn("void sendHttpHeaders", main_text)
+        self.assertNotIn("uint8_t configChecksum", main_text)
+        self.assertNotIn("void processSerialCommand", main_text)
+
     def test_web_ui_is_split_out_of_main(self) -> None:
         self.assertTrue((ROOT / "src" / "WebUI.h").exists())
         self.assertTrue(WEB_UI_CPP.exists())
-        self.assertIn('#include "WebUI.h"', MAIN_CPP.read_text())
-        self.assertIn("WebUI::SendHomePage(client)", MAIN_CPP.read_text())
+        self.assertTrue(HTTP_API_CPP.exists())
+        self.assertIn('#include "WebUI.h"', HTTP_API_CPP.read_text())
+        self.assertIn("WebUI::SendHomePage(client)", HTTP_API_CPP.read_text())
         self.assertNotIn("void sendHomePage", MAIN_CPP.read_text())
 
     def test_shared_logic_header_contains_expected_public_rules(self) -> None:
@@ -207,8 +233,39 @@ class SourceIntegrationTests(unittest.TestCase):
         text = WEB_UI_CPP.read_text()
         self.assertIn("c.relay?'open':'closed'", text)
         self.assertIn("z.relay?'open':'closed'", text)
+        self.assertIn("Relay status", text)
         self.assertNotIn("c.relay?'on':'off'", text)
         self.assertNotIn("z.relay?'on':'off'", text)
+
+    def test_stats_tab_uses_uplot_with_expected_default_series(self) -> None:
+        text = WEB_UI_CPP.read_text()
+        self.assertIn("data-tab=\\\"stats\\\"", text)
+        self.assertIn("uPlot.iife.min.js", text)
+        self.assertIn("fetch('/api/history?limit='+rangeLimit())", text)
+        self.assertNotIn("logToken", text)
+        self.assertNotIn("script.google.com/macros", text)
+        self.assertIn("{id:'s1',label:'Sensor 1',key:'Sensor 1',scale:'pct',stroke:'#2f7d4f',show:true}", text)
+        self.assertIn("{id:'s2',label:'Sensor 2',key:'Sensor 2',scale:'pct',stroke:'#1565c0',show:true}", text)
+        self.assertIn("{id:'s3',label:'Sensor 3',key:'Sensor 3',scale:'pct',stroke:'#8e44ad',show:false}", text)
+        self.assertIn("{id:'s4',label:'Sensor 4',key:'Sensor 4',scale:'pct',stroke:'#b26a00',show:false}", text)
+        for zone in range(1, 5):
+            self.assertIn(f"{{id:'w{zone}',label:'Zone {zone} water'", text)
+            self.assertIn(f"{{id:'r{zone}',label:'Zone {zone} relay'", text)
+
+    def test_irrigation_zones_report_runtime_water_estimate(self) -> None:
+        state = FIRMWARE_STATE_H.read_text()
+        scheduler = (ROOT / "src" / "IrrigationScheduler.cpp").read_text()
+        api = HTTP_API_CPP.read_text()
+        ui = WEB_UI_CPP.read_text()
+
+        self.assertIn("PipeInsideDiameterMm = 4.2f", state)
+        self.assertIn("WaterEstimateVelocityMps = 1.0f", state)
+        self.assertIn("ZoneWaterOpenMs[zoneIdx] += elapsedMs", scheduler)
+        self.assertIn("accountZoneWaterRuntime();", api)
+        self.assertIn("waterOpenSeconds", api)
+        self.assertIn("estimatedWaterMl", api)
+        self.assertIn("water estimate", ui)
+        self.assertIn("water runtime", ui)
 
     def test_irrigation_led_rendering_uses_assigned_zone_sensor(self) -> None:
         text = MAIN_CPP.read_text()
@@ -222,10 +279,41 @@ class SourceIntegrationTests(unittest.TestCase):
         self.assertIn("millis() / frameMs", text)
         self.assertNotIn("_currentAnimFrame = (_currentAnimFrame + 1)", text)
 
-    def test_web_client_read_timeout_stays_short_for_led_responsiveness(self) -> None:
-        text = MAIN_CPP.read_text()
-        self.assertIn("WebClientReadTimeoutMs = 50", text)
-        self.assertIn("(millis() - start) < WebClientReadTimeoutMs", text)
+    def test_web_client_waits_for_first_byte_but_keeps_line_reads_short(self) -> None:
+        state = FIRMWARE_STATE_H.read_text()
+        text = HTTP_API_CPP.read_text()
+        self.assertIn("WebClientFirstByteTimeoutMs = 1000", state)
+        self.assertIn("WebClientLineReadTimeoutMs = 50", state)
+        self.assertIn("sawRequestByte ? WebClientLineReadTimeoutMs : WebClientFirstByteTimeoutMs", text)
+        self.assertIn('requestLine.startsWith(F("GET /?"))', text)
+
+    def test_cloud_logging_uses_smart_minute_evaluation_and_ten_minute_heartbeat(self) -> None:
+        state = FIRMWARE_STATE_H.read_text()
+        services = (ROOT / "src" / "FirmwareServices.h").read_text()
+        logger = (ROOT / "src" / "CloudLogger.cpp").read_text()
+        network = (ROOT / "src" / "NetworkTime.cpp").read_text()
+        serial = (ROOT / "src" / "SerialCommands.cpp").read_text()
+        api = HTTP_API_CPP.read_text()
+
+        self.assertIn("ConfigVersion = 7", state)
+        self.assertIn("LogStartAddress = 512", state)
+        self.assertIn("CloudLogEvaluateIntervalMs = 60UL * 1000UL", state)
+        self.assertIn("CloudLogHeartbeatMs = 10UL * 60UL * 1000UL", state)
+        self.assertIn("CloudLogMoistureDeltaPercent = 1.0f", state)
+        self.assertIn("CloudLogWaterDeltaMl = 100.0f", state)
+        self.assertIn("struct PumpConfigV6", state)
+        self.assertIn("char cloudLogEndpoint", state)
+        self.assertIn("char cloudLogToken", state)
+        self.assertIn("bool sendCloudLogNow(bool force)", services)
+        self.assertIn("void updateCloudLogger()", services)
+        self.assertIn("snapshot.relayMask != LastCloudLogSnapshot.relayMask", logger)
+        self.assertIn("CloudLogHeartbeatMs", logger)
+        self.assertIn("sendHttpsPostJson(Config.cloudLogEndpoint, body)", logger)
+        self.assertIn("streamHttpsGetBody(cloudHistoryUrl(limit), client, 2)", logger)
+        self.assertIn("updateCloudLogger();", network)
+        self.assertIn("SET_LOG_ENDPOINT <https-url>", serial)
+        self.assertIn("LOG_TEST", serial)
+        self.assertIn('requestLine.startsWith(F("GET /api/history"))', api)
 
 
 if __name__ == "__main__":
