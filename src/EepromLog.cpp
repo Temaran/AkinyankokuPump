@@ -282,7 +282,6 @@ namespace GardenPump
     void enterIrrigationMode()
     {
         DataGatheringActive = false;
-        invalidateIrrigationDisplayAnimation();
         Serial.println(F("Entered irrigation mode."));
     }
 

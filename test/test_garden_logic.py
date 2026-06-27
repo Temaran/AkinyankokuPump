@@ -15,7 +15,6 @@ GARDEN_LOGIC_H = ROOT / "src" / "GardenLogic.h"
 WEB_UI_CPP = ROOT / "src" / "WebUI.cpp"
 HTTP_API_CPP = ROOT / "src" / "HttpApi.cpp"
 FIRMWARE_STATE_H = ROOT / "src" / "FirmwareState.h"
-LED_STATUS_DISPLAY_CPP = ROOT / "src" / "LedStatusDisplay.cpp"
 
 
 class ValidationTests(unittest.TestCase):
@@ -306,23 +305,19 @@ class SourceIntegrationTests(unittest.TestCase):
         self.assertIn("flowMlps", ui)
 
     def test_irrigation_led_rendering_uses_assigned_zone_sensor(self) -> None:
-        text = LED_STATUS_DISPLAY_CPP.read_text()
+        text = MAIN_CPP.read_text()
         self.assertIn("for (int zoneIdx = 0; zoneIdx < NrCells; ++zoneIdx)", text)
         self.assertIn("GardenLogic::CoerceZoneSensor(zoneIdx, Config.zoneSensor[zoneIdx])", text)
-        self.assertIn("Cells[zoneIdx].RenderFrameToBuffer(", text)
+        self.assertRegex(
+            text,
+            re.compile(r"Cells\[zoneIdx\]\.RenderFrom\(LedMatrix,\s*Cells\[sensorIdx\]\)"),
+        )
 
-    def test_watering_animation_uses_timer_driven_matrix_sequence(self) -> None:
-        display = LED_STATUS_DISPLAY_CPP.read_text()
-        main = MAIN_CPP.read_text()
-
-        self.assertIn("kWateringAnimationRevolutionMs = 1000", display)
-        self.assertIn("IrrigationAnimationFrames[2][GardenWateringAnimLength][4]", display)
-        self.assertIn("const int nextBuffer = 1 - ActiveIrrigationAnimationBuffer", display)
-        self.assertIn("ArduinoLEDMatrix::loadPixelsToBuffer(", display)
-        self.assertIn("LedMatrix.loadSequence(IrrigationAnimationFrames[nextBuffer])", display)
-        self.assertIn("LedMatrix.play(true)", display)
-        self.assertIn("updateIrrigationDisplayAnimation();", main)
-        self.assertNotIn("Cells[zoneIdx].RenderFrom(LedMatrix", main)
+    def test_watering_animation_is_time_based_one_revolution_per_second(self) -> None:
+        text = GARDEN_CELL_CPP.read_text()
+        self.assertIn("kWateringAnimationRevolutionMs = 1000", text)
+        self.assertIn("millis() / frameMs", text)
+        self.assertNotIn("_currentAnimFrame = (_currentAnimFrame + 1)", text)
 
     def test_web_client_waits_for_first_byte_but_keeps_line_reads_short(self) -> None:
         state = FIRMWARE_STATE_H.read_text()

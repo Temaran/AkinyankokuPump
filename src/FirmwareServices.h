@@ -53,8 +53,6 @@ namespace GardenPump
     void drawCountScreen(uint32_t count);
     void drawBarScreen(const uint8_t label[5], const uint8_t values[NrCells]);
     void drawText3x5(const uint8_t left[5], const uint8_t middle[5], const uint8_t right[5]);
-    void updateIrrigationDisplayAnimation();
-    void invalidateIrrigationDisplayAnimation();
     void renderGatherModeDisplay();
     void renderDumpDisplay();
 

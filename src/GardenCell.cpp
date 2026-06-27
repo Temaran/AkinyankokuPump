@@ -12,6 +12,7 @@ namespace
 {
     constexpr int kMaxConsecutiveReadErrors = 10;
     constexpr int kFilterPreviousWeight = 3;
+    constexpr unsigned long kWateringAnimationRevolutionMs = 1000;
 }
 
 void GardenCell::Initialize(int ledMatrixStartX, int ledMatrixStartY, int solanoidAddress, int sensorAddress, int analogPin)
@@ -333,6 +334,13 @@ void GardenCell::SetSolenoidOutput(bool enabled)
     digitalWrite(_solanoidAddress, enabled ? HIGH : LOW);
 }
 
+void GardenCell::Update(ArduinoLEDMatrix& ledMatrix)
+{
+    RefreshSensor();
+    UpdateWateringState();
+    Render(ledMatrix);
+}
+
 void GardenCell::UpdateWateringState()
 {
     if (_hasConnected && !_hasError)
@@ -354,57 +362,37 @@ void GardenCell::UpdateWateringState()
     }
 }
 
-void GardenCell::RenderFrameToBuffer(
-    uint8_t* pixels,
-    int matrixWidth,
-    int matrixHeight,
-    const GardenCell& sourceCell,
-    int animationFrame) const
+void GardenCell::Render(ArduinoLEDMatrix& ledMatrix)
 {
-    const auto writePixel = [&](int localX, int localY, bool on)
-    {
-        const int x = _ledMatrixStartX + localX;
-        const int y = _ledMatrixStartY + localY;
-        if (x >= 0 && x < matrixWidth && y >= 0 && y < matrixHeight)
-        {
-            pixels[y * matrixWidth + x] = on ? 1 : 0;
-        }
-    };
+    RenderFrom(ledMatrix, *this);
+}
 
-    for (int x = 0; x < _ledMatrixWidth; ++x)
-    {
-        for (int y = 0; y < _ledMatrixHeight; ++y)
-        {
-            writePixel(x, y, false);
-        }
-    }
-
+void GardenCell::RenderFrom(ArduinoLEDMatrix& ledMatrix, const GardenCell& sourceCell)
+{
+    ClearGraphics(ledMatrix);
     GardenFrame* sourceFrame = &GardenErrorIcon;
     if (!sourceCell._hasConnected)
     {
         sourceFrame = &GardenNotConnectedIcon;
+        _currentAnimFrame = 0;
     }
     else if (sourceCell._hasError)
     {
         sourceFrame = &GardenErrorIcon;
+        _currentAnimFrame = 0;
     }
     else if (sourceCell._shouldWater)
     {
-        const int frame = constrain(animationFrame, 0, GardenWateringAnimLength - 1);
-        sourceFrame = &GardenWateringAnim[frame];
+        const unsigned long frameMs = kWateringAnimationRevolutionMs / GardenWateringAnimLength;
+        _currentAnimFrame = static_cast<int>((millis() / frameMs) % GardenWateringAnimLength);
+        sourceFrame = &GardenWateringAnim[_currentAnimFrame];
     }
     else
     {
         sourceFrame = &GardenNotWateringIcon;
+        _currentAnimFrame = 0;
     }
-
-    for (int x = 0; x < 3; ++x)
-    {
-        for (int y = 0; y < 3; ++y)
-        {
-            writePixel(x, y, (*sourceFrame)[x][y] > 0);
-        }
-    }
+    WriteGardenFrame(ledMatrix, *sourceFrame);
 
     if (sourceCell._hasConnected && !sourceCell._hasError)
     {
@@ -414,15 +402,44 @@ void GardenCell::RenderFrameToBuffer(
             sourceCell._stopWateringThresholdNorm);
         if (moistureDots >= 1)
         {
-            writePixel(4, 2, true);
+            WritePixel(ledMatrix, 4, 2, true);
         }
         if (moistureDots >= 2)
         {
-            writePixel(4, 1, true);
+            WritePixel(ledMatrix, 4, 1, true);
         }
         if (moistureDots >= 3)
         {
-            writePixel(4, 0, true);
+            WritePixel(ledMatrix, 4, 0, true);
         }
     }
+}
+
+void GardenCell::ClearGraphics(ArduinoLEDMatrix& ledMatrix, bool clearState)
+{
+    for (int x = 0; x < _ledMatrixWidth; x++)
+    {
+        for (int y = 0; y < _ledMatrixHeight; y++)
+        {
+            WritePixel(ledMatrix, x, y, clearState);
+        }
+    }
+}
+
+void GardenCell::WriteGardenFrame(ArduinoLEDMatrix& ledMatrix, GardenFrame& frame)
+{
+    for (int x = 0; x < 3; x++)
+    {
+        for (int y = 0; y < 3; y++)
+        {
+            const int value = frame[x][y];
+            WritePixel(ledMatrix, x, y, value > 0);
+        }
+    }
+}
+
+void GardenCell::WritePixel(ArduinoLEDMatrix& ledMatrix, int x, int y, bool newValue)
+{
+    const int value = newValue ? 255 : 0;
+    ledMatrix.set(_ledMatrixStartX + x, _ledMatrixStartY + y, value, value, value);
 }
