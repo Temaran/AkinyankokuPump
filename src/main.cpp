@@ -14,6 +14,7 @@ namespace GardenPump
 {
     const char WifiHostname[] = "garden-pump";
     const int AnalogPins[NrCells] = {A0, A1, A2, A3};
+    const int RelayPins[NrCells] = {0, 1, 2, 3};
 
     GardenCell Cells[NrCells];
     WiFiServer WebServer(HttpPort);
@@ -61,6 +62,7 @@ using namespace GardenPump;
 
 void setup()
 {
+    initializeRelayOutputsSafe();
     Serial.begin(115200);
     initializeRuntimeDiagnostics();
     Wire.begin();
@@ -70,10 +72,10 @@ void setup()
     RTC.begin();
     initializeLedStatusDisplay();
 
-    Cells[0].Initialize(0, 0, 0, 0x36, AnalogPins[0]);
-    Cells[1].Initialize(0, 5, 1, 0x37, AnalogPins[1]);
-    Cells[2].Initialize(7, 0, 2, 0x38, AnalogPins[2]);
-    Cells[3].Initialize(7, 5, 3, 0x39, AnalogPins[3]);
+    Cells[0].Initialize(0, 0, RelayPins[0], 0x36, AnalogPins[0]);
+    Cells[1].Initialize(0, 5, RelayPins[1], 0x37, AnalogPins[1]);
+    Cells[2].Initialize(7, 0, RelayPins[2], 0x38, AnalogPins[2]);
+    Cells[3].Initialize(7, 5, RelayPins[3], 0x39, AnalogPins[3]);
     applyConfig();
     initializeWifiModem();
 

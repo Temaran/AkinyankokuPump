@@ -411,7 +411,7 @@ class SourceIntegrationTests(unittest.TestCase):
         self.assertIn("backupChecksum()", runtime)
         self.assertIn("R_SYSTEM->PRCR = BackupRegisterUnlock", runtime)
         self.assertIn("R_SYSTEM->PRCR = BackupRegisterLock", runtime)
-        self.assertIn("HardwareWatchdogEnabled = false", state)
+        self.assertIn("HardwareWatchdogEnabled", state)
         self.assertIn("void initializeRuntimeDiagnostics();", services)
         self.assertIn("void setRuntimeStage(RuntimeStage stage);", services)
         self.assertIn("void printRuntimeDiagnostics(Print& out);", services)
@@ -432,14 +432,14 @@ class SourceIntegrationTests(unittest.TestCase):
         self.assertIn('\\"maxLoopMs\\":', api)
         self.assertIn("printRuntimeDiagnostics(client);", api)
 
-    def test_watchdog_plumbing_is_present_but_hardware_remains_disabled(self) -> None:
+    def test_watchdog_is_enabled_only_after_display_startup(self) -> None:
         runtime = RUNTIME_DIAGNOSTICS_CPP.read_text()
         state = FIRMWARE_STATE_H.read_text()
         services = (ROOT / "src" / "FirmwareServices.h").read_text()
         main = MAIN_CPP.read_text()
 
-        self.assertIn("WatchdogTimeoutMs = 8000", state)
-        self.assertIn("HardwareWatchdogEnabled = false", state)
+        self.assertIn("WatchdogTimeoutMs = 5000", state)
+        self.assertIn("HardwareWatchdogEnabled = true", state)
         self.assertIn("bool watchdogEnabled = false", state)
         self.assertIn("#include <WDT.h>", runtime)
         self.assertIn("void initializeWatchdog()", runtime)
@@ -453,6 +453,33 @@ class SourceIntegrationTests(unittest.TestCase):
         self.assertGreater(
             main.index("initializeWatchdog();"),
             main.index("playStartupDisplayAnimation();"),
+        )
+
+    def test_watchdog_recovery_test_records_stage_and_fails_relays_safe(self) -> None:
+        runtime = RUNTIME_DIAGNOSTICS_CPP.read_text()
+        state = FIRMWARE_STATE_H.read_text()
+        services = (ROOT / "src" / "FirmwareServices.h").read_text()
+        serial = (ROOT / "src" / "SerialCommands.cpp").read_text()
+        main = MAIN_CPP.read_text()
+
+        self.assertIn("extern const int RelayPins[NrCells];", state)
+        self.assertIn("WatchdogTest = 15", state)
+        self.assertIn('case RuntimeStage::WatchdogTest: return F("watchdog-test")', runtime)
+        self.assertIn("void initializeRelayOutputsSafe()", runtime)
+        self.assertIn("digitalWrite(RelayPins[idx], LOW);", runtime)
+        self.assertIn("void runWatchdogRecoveryTest()", runtime)
+        watchdog_test = runtime.split("void runWatchdogRecoveryTest()", 1)[1]
+        self.assertIn("setRuntimeStage(RuntimeStage::WatchdogTest);", watchdog_test)
+        self.assertIn("initializeRelayOutputsSafe();", watchdog_test)
+        self.assertIn("while (true)", watchdog_test)
+        self.assertNotIn("watchdogProgress();", watchdog_test.split("}", 1)[0])
+        self.assertIn("void initializeRelayOutputsSafe();", services)
+        self.assertIn("void runWatchdogRecoveryTest();", services)
+        self.assertIn("WATCHDOG_TEST", serial)
+        setup = main.split("void setup()", 1)[1].split("void loop()", 1)[0]
+        self.assertLess(
+            setup.index("initializeRelayOutputsSafe();"),
+            setup.index("Serial.begin(115200);"),
         )
 
     def test_long_synchronous_waits_report_watchdog_progress(self) -> None:

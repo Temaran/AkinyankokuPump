@@ -100,7 +100,17 @@ namespace GardenPump
             case RuntimeStage::HistoryBody: return F("history-body");
             case RuntimeStage::Ntp: return F("ntp");
             case RuntimeStage::Eeprom: return F("eeprom");
+            case RuntimeStage::WatchdogTest: return F("watchdog-test");
             default: return F("unknown");
+        }
+    }
+
+    void initializeRelayOutputsSafe()
+    {
+        for (int idx = 0; idx < NrCells; ++idx)
+        {
+            pinMode(RelayPins[idx], OUTPUT);
+            digitalWrite(RelayPins[idx], LOW);
         }
     }
 
@@ -156,6 +166,24 @@ namespace GardenPump
         else
         {
             Serial.println(F("Watchdog initialization failed."));
+        }
+    }
+
+    void runWatchdogRecoveryTest()
+    {
+        if (!Runtime.watchdogEnabled)
+        {
+            Serial.println(F("WATCHDOG_TEST unavailable: watchdog is not active."));
+            return;
+        }
+
+        Serial.println(F("WATCHDOG_TEST: closing relays and waiting for watchdog reset."));
+        Serial.flush();
+        setRuntimeStage(RuntimeStage::WatchdogTest);
+        initializeRelayOutputsSafe();
+        while (true)
+        {
+            delay(1);
         }
     }
 

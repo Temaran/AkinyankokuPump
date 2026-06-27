@@ -24,6 +24,7 @@ namespace GardenPump
         Serial.println(F("  SET_LOG_TOKEN <token> = save cloud log secret token"));
         Serial.println(F("  LOG_STATUS = print cloud log config and last send result"));
         Serial.println(F("  RUNTIME_STATUS = print retained reset and loop diagnostics"));
+        Serial.println(F("  WATCHDOG_TEST = close relays and intentionally test watchdog recovery"));
         Serial.println(F("  LOG_TEST = send one cloud log row now"));
         Serial.println(F("  CLEAR_LOG_ENDPOINT = remove cloud logging endpoint and token"));
         Serial.println(F("  SYNC_TIME = retry NTP time sync"));
@@ -119,6 +120,12 @@ namespace GardenPump
         if (commandUpper == F("RUNTIME_STATUS"))
         {
             printRuntimeDiagnostics(Serial);
+            return;
+        }
+
+        if (commandUpper == F("WATCHDOG_TEST"))
+        {
+            runWatchdogRecoveryTest();
             return;
         }
 

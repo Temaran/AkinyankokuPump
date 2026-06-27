@@ -73,8 +73,8 @@ namespace GardenPump
     constexpr float CloudLogWaterDeltaMl = 100.0f;
     constexpr unsigned long CloudLogHttpTimeoutMs = 4000UL;
     constexpr bool RetainedRuntimeDiagnosticsEnabled = true;
-    constexpr unsigned long WatchdogTimeoutMs = 8000UL;
-    constexpr bool HardwareWatchdogEnabled = false;
+    constexpr unsigned long WatchdogTimeoutMs = 5000UL;
+    constexpr bool HardwareWatchdogEnabled = true;
     constexpr int RuntimeBackupRegisterOffset = 64;
 
     enum class RuntimeStage : uint8_t
@@ -94,6 +94,7 @@ namespace GardenPump
         HistoryBody = 12,
         Ntp = 13,
         Eeprom = 14,
+        WatchdogTest = 15,
     };
 
     struct RuntimeMetrics
@@ -119,6 +120,7 @@ namespace GardenPump
 
     extern const char WifiHostname[];
     extern const int AnalogPins[NrCells];
+    extern const int RelayPins[NrCells];
 
     struct GatherState
     {
