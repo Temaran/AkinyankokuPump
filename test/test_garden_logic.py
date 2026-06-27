@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import re
 import unittest
 from pathlib import Path
@@ -14,6 +15,7 @@ GARDEN_LOGIC_H = ROOT / "src" / "GardenLogic.h"
 WEB_UI_CPP = ROOT / "src" / "WebUI.cpp"
 HTTP_API_CPP = ROOT / "src" / "HttpApi.cpp"
 FIRMWARE_STATE_H = ROOT / "src" / "FirmwareState.h"
+LED_STATUS_DISPLAY_CPP = ROOT / "src" / "LedStatusDisplay.cpp"
 
 
 class ValidationTests(unittest.TestCase):
@@ -304,16 +306,22 @@ class SourceIntegrationTests(unittest.TestCase):
         self.assertIn("flowMlps", ui)
 
     def test_irrigation_led_rendering_uses_assigned_zone_sensor(self) -> None:
-        text = MAIN_CPP.read_text()
+        text = LED_STATUS_DISPLAY_CPP.read_text()
         self.assertIn("for (int zoneIdx = 0; zoneIdx < NrCells; ++zoneIdx)", text)
         self.assertIn("GardenLogic::CoerceZoneSensor(zoneIdx, Config.zoneSensor[zoneIdx])", text)
-        self.assertRegex(text, re.compile(r"Cells\[zoneIdx\]\.RenderFrom\(LedMatrix,\s*Cells\[sensorIdx\]\)"))
+        self.assertIn("Cells[zoneIdx].RenderFrameToBuffer(", text)
 
-    def test_watering_animation_is_time_based_one_revolution_per_second(self) -> None:
-        text = GARDEN_CELL_CPP.read_text()
-        self.assertIn("kWateringAnimationRevolutionMs = 1000", text)
-        self.assertIn("millis() / frameMs", text)
-        self.assertNotIn("_currentAnimFrame = (_currentAnimFrame + 1)", text)
+    def test_watering_animation_uses_timer_driven_matrix_sequence(self) -> None:
+        display = LED_STATUS_DISPLAY_CPP.read_text()
+        main = MAIN_CPP.read_text()
+
+        self.assertIn("kWateringAnimationRevolutionMs = 1000", display)
+        self.assertIn("IrrigationAnimationFrames[GardenWateringAnimLength][4]", display)
+        self.assertIn("ArduinoLEDMatrix::loadPixelsToBuffer(", display)
+        self.assertIn("LedMatrix.loadSequence(IrrigationAnimationFrames)", display)
+        self.assertIn("LedMatrix.play(true)", display)
+        self.assertIn("updateIrrigationDisplayAnimation();", main)
+        self.assertNotIn("Cells[zoneIdx].RenderFrom(LedMatrix", main)
 
     def test_web_client_waits_for_first_byte_but_keeps_line_reads_short(self) -> None:
         state = FIRMWARE_STATE_H.read_text()
@@ -349,11 +357,33 @@ class SourceIntegrationTests(unittest.TestCase):
         self.assertIn("updateCloudLogger();", network)
         self.assertIn("SET_LOG_ENDPOINT <https-url>", serial)
         self.assertIn("LOG_TEST", serial)
+        self.assertIn("SYNC_TIME", serial)
         self.assertIn("Test cloud log", WEB_UI_CPP.read_text())
         self.assertIn("cloudLog.textContent", WEB_UI_CPP.read_text())
         self.assertIn("void sendCloudLogTest(WiFiClient& client)", services)
         self.assertIn('requestLine.startsWith(F("GET /api/test_cloud_log"))', api)
         self.assertIn('requestLine.startsWith(F("GET /api/history"))', api)
+        self.assertIn("Token configured:", logger)
+        self.assertIn("Time synced:", logger)
+        self.assertIn("Connectivity firmware:", logger)
+        self.assertIn("WIFI_FIRMWARE_LATEST_VERSION", logger)
+        self.assertIn("Connectivity firmware:", network)
+        self.assertIn("WIFI_FIRMWARE_LATEST_VERSION", network)
+        self.assertIn("!TimeSynced && !syncTimeFromNtp()", logger)
+        self.assertIn("GoogleTrustServicesRootR1", logger)
+        self.assertIn("remote.setCACert(GoogleTrustServicesRootR1)", logger)
+        self.assertIn('command.indexOf(F("[I]"))', serial)
+
+    def test_cloud_logger_ca_uses_standard_pem_line_wrapping(self) -> None:
+        logger = (ROOT / "src" / "CloudLogger.cpp").read_text()
+        certificate = logger.split('"-----BEGIN CERTIFICATE-----\\n"', 1)[1]
+        certificate = certificate.split('"-----END CERTIFICATE-----\\n"', 1)[0]
+        lines = re.findall(r'"([A-Za-z0-9+/=]+)\\n"', certificate)
+
+        self.assertGreater(len(lines), 1)
+        self.assertTrue(all(len(line) == 64 for line in lines[:-1]))
+        self.assertLessEqual(len(lines[-1]), 64)
+        self.assertEqual(base64.b64decode("".join(lines))[0], 0x30)
 
 
 if __name__ == "__main__":

@@ -170,6 +170,10 @@ namespace GardenPump
 
     void printWifiStatus()
     {
+        Serial.print(F("Connectivity firmware: "));
+        Serial.println(WiFi.firmwareVersion());
+        Serial.print(F("Expected connectivity firmware: "));
+        Serial.println(F(WIFI_FIRMWARE_LATEST_VERSION));
         Serial.print(F("SSID: "));
         Serial.println(WiFi.SSID());
         Serial.print(F("IP Address: "));

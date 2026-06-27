@@ -6,6 +6,39 @@ namespace GardenPump
 {
     namespace
     {
+        const char GoogleTrustServicesRootR1[] =
+            "-----BEGIN CERTIFICATE-----\n"
+            "MIIFVzCCAz+gAwIBAgINAgPlk28xsBNJiGuiFzANBgkqhkiG9w0BAQwFADBHMQsw\n"
+            "CQYDVQQGEwJVUzEiMCAGA1UEChMZR29vZ2xlIFRydXN0IFNlcnZpY2VzIExMQzEU\n"
+            "MBIGA1UEAxMLR1RTIFJvb3QgUjEwHhcNMTYwNjIyMDAwMDAwWhcNMzYwNjIyMDAw\n"
+            "MDAwWjBHMQswCQYDVQQGEwJVUzEiMCAGA1UEChMZR29vZ2xlIFRydXN0IFNlcnZp\n"
+            "Y2VzIExMQzEUMBIGA1UEAxMLR1RTIFJvb3QgUjEwggIiMA0GCSqGSIb3DQEBAQUA\n"
+            "A4ICDwAwggIKAoICAQC2EQKLHuOhd5s73L+UPreVp0A8of2C+X0yBoJx9vaMf/vo\n"
+            "27xqLpeXo4xL+Sv2sfnOhB2x+cWX3u+58qPpvBKJXqeqUqv4IyfLpLGcY9vXmX7w\n"
+            "Cl7raKb0xlpHDU0QM+NOsROjyBhsS+z8CZDfnWQpJSMHobTSPS5g4M/SCYe7zUjw\n"
+            "TcLCeoiKu7rPWRnWr4+wB7CeMfGCwcDfLqZtbBkOtdh+JhpFAz2weaSUKK0Pfybl\n"
+            "qAj+lug8aJRT7oM6iCsVlgmy4HqMLnXWnOunVmSPlk9orj2XwoSPwLxAwAtcvfaH\n"
+            "szVsrBhQf4TgTM2S0yDpM7xSma8ytSmzJSq0SPly4cpk9+aCEI3oncKKiPo4Zor8\n"
+            "Y/kB+Xj9e1x3+naH+uzfsQ55lVe0vSbv1gHR6xYKu44LtcXFilWr06zqkUspzBmk\n"
+            "MiVOKvFlRNACzqrOSbTqn3yDsEB750Orp2yjj32JgfpMpf/VjsPOS+C12LOORc92\n"
+            "wO1AK/1TD7Cn1TsNsYqiA94xrcx36m97PtbfkSIS5r762DL8EGMUUXLeXdYWk70p\n"
+            "aDPvOmbsB4om3xPXV2V4J95eSRQAogB/mqghtqmxlbCluQ0WEdrHbEg8QOB+DVrN\n"
+            "VjzRlwW5y0vtOUucxD/SVRNuJLDWcfr0wbrM7Rv1/oFB2ACYPTrIrnqYNxgFlQID\n"
+            "AQABo0IwQDAOBgNVHQ8BAf8EBAMCAYYwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4E\n"
+            "FgQU5K8rJnEaK0gnhS9SZizv8IkTcT4wDQYJKoZIhvcNAQEMBQADggIBAJ+qQibb\n"
+            "C5u+/x6Wki4+omVKapi6Ist9wTrYggoGxval3sBOh2Z5ofmmWJyq+bXmYOfg6LEe\n"
+            "QkEzCzc9zolwFcq1JKjPa7XSQCGYzyI0zzvFIoTgxQ6KfF2I5DUkzps+GlQebtuy\n"
+            "h6f88/qBVRRiClmpIgUxPoLW7ttXNLwzldMXG+gnoot7TiYaelpkttGsN/H9oPM4\n"
+            "7HLwEXWdyzRSjeZ2axfG34arJ45JK3VmgRAhpuo+9K4l/3wV3s6MJT/KYnAK9y8J\n"
+            "ZgfIPxz88NtFMN9iiMG1D53Dn0reWVlHxYciNuaCp+0KueIHoI17eko8cdLiA6Ef\n"
+            "MgfdG+RCzgwARWGAtQsgWSl4vflVy2PFPEz0tv/bal8xa5meLMFrUKTX5hgUvYU/\n"
+            "Z6tGn6D/Qqc6f1zLXbBwHSs09dR2CQzreExZBfMzQsNhFRAbd03OIozUhfJFfbdT\n"
+            "6u9AWpQKXCBfTkBdYiJ23//OYb2MI3jSNwLgjt7RETeJ9r/tSQdirpLsQBqvFAnZ\n"
+            "0E6yove+7u7Y/9waLd64NnHi/Hm3lCXRSHNboTXns5lndcEZOitHTtNCjv0xyBZm\n"
+            "2tIMPNuzjsmhDYAPexZ3FL//2wmUspO8IFgV6dtxQ/PeEMMA3KgqlbbC1j+Qa3bb\n"
+            "bP6MvPJwNQzcmRk13NfIRmPVNnGuV/u3gm3c\n"
+            "-----END CERTIFICATE-----\n";
+
         struct ParsedHttpsUrl
         {
             String host;
@@ -114,6 +147,7 @@ namespace GardenPump
             }
 
             WiFiSSLClient remote;
+            remote.setCACert(GoogleTrustServicesRootR1);
             if (!remote.connect(parsed.host.c_str(), 443))
             {
                 LastCloudLogHttpStatus = 0;
@@ -167,6 +201,7 @@ namespace GardenPump
             }
 
             WiFiSSLClient remote;
+            remote.setCACert(GoogleTrustServicesRootR1);
             if (!remote.connect(parsed.host.c_str(), 443))
             {
                 return false;
@@ -305,6 +340,13 @@ namespace GardenPump
             setCloudLogMessage(F("not configured"));
             return false;
         }
+        if (!TimeSynced && !syncTimeFromNtp())
+        {
+            LastCloudLogOk = false;
+            LastCloudLogHttpStatus = 0;
+            setCloudLogMessage(F("time not synced"));
+            return false;
+        }
 
         CloudLogSnapshot snapshot;
         captureCloudLogSnapshot(snapshot);
@@ -362,6 +404,18 @@ namespace GardenPump
     {
         out.print(F("Cloud logging configured: "));
         out.println(hasCloudLogConfig() ? F("yes") : F("no"));
+        out.print(F("Endpoint configured: "));
+        out.println(Config.cloudLogEndpoint[0] != '\0' ? F("yes") : F("no"));
+        out.print(F("Token configured: "));
+        out.println(Config.cloudLogToken[0] != '\0' ? F("yes") : F("no"));
+        out.print(F("Time synced: "));
+        out.println(TimeSynced ? F("yes") : F("no"));
+        out.print(F("WiFi status: "));
+        out.println(WiFi.status());
+        out.print(F("Connectivity firmware: "));
+        out.println(WiFi.firmwareVersion());
+        out.print(F("Expected connectivity firmware: "));
+        out.println(F(WIFI_FIRMWARE_LATEST_VERSION));
         if (Config.cloudLogEndpoint[0] != '\0')
         {
             out.print(F("Endpoint: "));

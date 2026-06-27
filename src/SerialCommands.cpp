@@ -25,6 +25,7 @@ namespace GardenPump
         Serial.println(F("  LOG_STATUS = print cloud log config and last send result"));
         Serial.println(F("  LOG_TEST = send one cloud log row now"));
         Serial.println(F("  CLEAR_LOG_ENDPOINT = remove cloud logging endpoint and token"));
+        Serial.println(F("  SYNC_TIME = retry NTP time sync"));
         Serial.println(F("  SET_SIMULATION <0|1> [c0 c1 c2 c3] = runtime simulated moisture percent"));
         Serial.println(F("  SET_FORCED_ZONE <-1..3> = runtime irrigation override; -1 disables it"));
         Serial.println(F("  SET_WIFI <ssid> <password> = save WiFi credentials to EEPROM config"));
@@ -41,6 +42,14 @@ namespace GardenPump
         commandUpper.toUpperCase();
 
         if (commandUpper.length() == 0)
+        {
+            return;
+        }
+
+        if (command.startsWith(F("[")) &&
+            (command.indexOf(F("[E]")) >= 0 ||
+             command.indexOf(F("[W]")) >= 0 ||
+             command.indexOf(F("[I]")) >= 0))
         {
             return;
         }
@@ -119,6 +128,13 @@ namespace GardenPump
             clearCloudLogConfig();
             LastCloudLogSnapshot = CloudLogSnapshot{};
             Serial.println(F("Cloud log endpoint and token cleared."));
+            return;
+        }
+
+        if (commandUpper == F("SYNC_TIME"))
+        {
+            Serial.println(syncTimeFromNtp() ? F("RTC synced from NTP.") : F("NTP sync failed."));
+            Serial.println(currentTimeString());
             return;
         }
 

@@ -59,6 +59,7 @@
 - Serial command `SET_LOG_ENDPOINT <https-url>` saves the Google Apps Script web app endpoint for long-term logging.
 - Serial command `SET_LOG_TOKEN <token>` saves the shared secret token for long-term logging.
 - Serial command `LOG_TEST` sends one cloud log row immediately using cached sensor/relay/water state.
+- Serial command `SYNC_TIME` retries NTP time sync. Cloud logging also tries to sync time before HTTPS if the RTC is not synced.
 - Log clearing commands erase only the log area from address `512` onward and preserve config settings.
 - Normal live/data-gathering operation polls one sensor per loop cycle. EEPROM logging uses cached rolling values and does not poll every sensor in a burst.
 - Firmware command `DUMP` dumps EEPROM, erases it with `eraseEntireLog()`, then resets the board. Do not use it when the user asks to preserve data.

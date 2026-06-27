@@ -111,7 +111,6 @@ void loop()
     if (!DataGatheringActive)
     {
         const int updatedCell = CurrentCell;
-        LedMatrix.beginDraw();
         Cells[updatedCell].RefreshSensor();
         Cells[updatedCell].UpdateWateringState();
         if (updatedCell < DiagnosticCells)
@@ -119,13 +118,8 @@ void loop()
             DataState.latest[updatedCell] = Cells[updatedCell].GetMoistureByte();
         }
         updateIrrigationScheduler();
-        for (int zoneIdx = 0; zoneIdx < NrCells; ++zoneIdx)
-        {
-            const int sensorIdx = GardenLogic::CoerceZoneSensor(zoneIdx, Config.zoneSensor[zoneIdx]);
-            Cells[zoneIdx].RenderFrom(LedMatrix, Cells[sensorIdx]);
-        }
+        updateIrrigationDisplayAnimation();
         CurrentCell = (CurrentCell + 1) % NrCells;
-        LedMatrix.endDraw();
         delay(UpdateDelayMs);
         return;
     }

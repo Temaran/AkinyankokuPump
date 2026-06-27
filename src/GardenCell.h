@@ -2,7 +2,6 @@
 
 #include <Arduino.h>
 #include "Adafruit_seesaw.h"
-#include "Arduino_LED_Matrix.h"
 
 #include "GardenGraphics.h"
 
@@ -17,11 +16,14 @@ class GardenCell
 {
 public:
     void Initialize(int ledMatrixStartX, int ledMatrixStartY, int solanoidAddress, int sensorAddress, int analogPin);
-    void Update(ArduinoLEDMatrix& ledMatrix);
     void RefreshSensor();
     void UpdateWateringState();
-    void Render(ArduinoLEDMatrix& ledMatrix);
-    void RenderFrom(ArduinoLEDMatrix& ledMatrix, const GardenCell& sourceCell);
+    void RenderFrameToBuffer(
+        uint8_t* pixels,
+        int matrixWidth,
+        int matrixHeight,
+        const GardenCell& sourceCell,
+        int animationFrame) const;
     void ForceDefaultSolenoidState();
     void ForceSolenoidState(bool enabled);
     void SetSolenoidOutput(bool enabled);
@@ -100,14 +102,8 @@ private:
     int _debugSelectedReading = 0;
     unsigned long _lastRefreshMs = 0;
 
-    // Drawing
-    int _currentAnimFrame = 0;
-
     Adafruit_seesaw _soilSensor;
 
-    void ClearGraphics(ArduinoLEDMatrix& ledMatrix, bool clearState = false);
-    void WriteGardenFrame(ArduinoLEDMatrix& ledMatrix, GardenFrame& frame);
-    void WritePixel(ArduinoLEDMatrix& ledMatrix, int x, int y, bool newValue);
     void RefreshSeesawSensor();
     void RefreshVh400Sensor();
     void RefreshSimulatedSensor();
