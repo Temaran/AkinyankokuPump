@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MAIN_CPP = ROOT / "src" / "main.cpp"
 GARDEN_CELL_CPP = ROOT / "src" / "GardenCell.cpp"
 GARDEN_LOGIC_H = ROOT / "src" / "GardenLogic.h"
+LED_STATUS_DISPLAY_CPP = ROOT / "src" / "LedStatusDisplay.cpp"
 WEB_UI_CPP = ROOT / "src" / "WebUI.cpp"
 HTTP_API_CPP = ROOT / "src" / "HttpApi.cpp"
 FIRMWARE_STATE_H = ROOT / "src" / "FirmwareState.h"
@@ -268,6 +269,8 @@ class SourceIntegrationTests(unittest.TestCase):
         self.assertIn("data-tab=\\\"stats\\\"", text)
         self.assertIn("uPlot.iife.min.js", text)
         self.assertIn("fetch('/api/history?limit='+rangeLimit())", text)
+        self.assertIn("await waitForDashboardPolls()", text)
+        self.assertIn("statsBusy||!dashboard.classList.contains('active')", text)
         self.assertNotIn("logToken", text)
         self.assertNotIn("script.google.com/macros", text)
         self.assertIn("{id:'s1',label:'Sensor 1',key:'Sensor 1',scale:'pct',stroke:'#2f7d4f',show:true}", text)
@@ -305,19 +308,91 @@ class SourceIntegrationTests(unittest.TestCase):
         self.assertIn("flowMlps", ui)
 
     def test_irrigation_led_rendering_uses_assigned_zone_sensor(self) -> None:
-        text = MAIN_CPP.read_text()
+        text = LED_STATUS_DISPLAY_CPP.read_text()
         self.assertIn("for (int zoneIdx = 0; zoneIdx < NrCells; ++zoneIdx)", text)
         self.assertIn("GardenLogic::CoerceZoneSensor(zoneIdx, Config.zoneSensor[zoneIdx])", text)
         self.assertRegex(
             text,
-            re.compile(r"Cells\[zoneIdx\]\.RenderFrom\(LedMatrix,\s*Cells\[sensorIdx\]\)"),
+            re.compile(
+                r"Cells\[zoneIdx\]\.RenderFrameToBuffer\([^;]+Cells\[sensorIdx\],\s*frameIdx\)"
+            ),
         )
 
-    def test_watering_animation_is_time_based_one_revolution_per_second(self) -> None:
-        text = GARDEN_CELL_CPP.read_text()
-        self.assertIn("kWateringAnimationRevolutionMs = 1000", text)
-        self.assertIn("millis() / frameMs", text)
-        self.assertNotIn("_currentAnimFrame = (_currentAnimFrame + 1)", text)
+    def test_watering_animation_uses_atomic_double_buffered_sequence(self) -> None:
+        display = LED_STATUS_DISPLAY_CPP.read_text()
+        logger = (ROOT / "src" / "CloudLogger.cpp").read_text()
+        http = HTTP_API_CPP.read_text()
+        network = (ROOT / "src" / "NetworkTime.cpp").read_text()
+        main = MAIN_CPP.read_text()
+
+        self.assertIn(
+            "IrrigationAnimationFrames[2][GardenWateringAnimLength][4]", display
+        )
+        self.assertIn(
+            "nextBuffer = 1 - ActiveIrrigationAnimationBuffer", display
+        )
+        self.assertIn("ArduinoLEDMatrix::loadPixelsToBuffer(", display)
+        self.assertIn("noInterrupts();", display)
+        self.assertIn(
+            "LedMatrix.loadSequence(IrrigationAnimationFrames[nextBuffer]);", display
+        )
+        self.assertIn("LedMatrix.play(true);", display)
+        self.assertIn("ActiveIrrigationAnimationBuffer = nextBuffer;", display)
+        self.assertIn("interrupts();", display)
+
+        swap = display.split("void updateIrrigationDisplayAnimation()", 1)[1]
+        build = swap.split("noInterrupts();", 1)[0]
+        self.assertIn("IrrigationAnimationFrames[nextBuffer][frameIdx]", build)
+        self.assertNotIn("IrrigationAnimationFrames[ActiveIrrigationAnimationBuffer]", build)
+        self.assertLess(
+            swap.index("ArduinoLEDMatrix::loadPixelsToBuffer("),
+            swap.index("noInterrupts();"),
+        )
+        self.assertLess(swap.index("noInterrupts();"), swap.index("LedMatrix.loadSequence("))
+        self.assertLess(
+            swap.index("ActiveIrrigationAnimationBuffer = nextBuffer;"),
+            swap.index("interrupts();"),
+        )
+        self.assertIn("updateIrrigationDisplayAnimation();", main)
+        self.assertNotIn("RenderFrom(", main)
+        for text in (logger, http, network, main):
+            self.assertNotIn("serviceIrrigationDisplay", text)
+
+    def test_other_display_modes_take_and_release_animation_ownership(self) -> None:
+        services = (ROOT / "src" / "FirmwareServices.h").read_text()
+        eeprom = (ROOT / "src" / "EepromLog.cpp").read_text()
+
+        self.assertIn("void updateIrrigationDisplayAnimation();", services)
+        self.assertIn("void invalidateIrrigationDisplayAnimation();", services)
+        self.assertIn("void stopIrrigationDisplayAnimation();", services)
+
+        enter_gather = eeprom.split("void enterGatherMode()", 1)[1].split("}", 1)[0]
+        enter_irrigation = eeprom.split("void enterIrrigationMode()", 1)[1].split("}", 1)[0]
+        perform_dump = eeprom.split("void performDump(bool eraseAfterDump)", 1)[1]
+        self.assertIn("stopIrrigationDisplayAnimation();", enter_gather)
+        self.assertIn("invalidateIrrigationDisplayAnimation();", enter_irrigation)
+        self.assertLess(
+            perform_dump.index("stopIrrigationDisplayAnimation();"),
+            perform_dump.index("dumpLogToSerial();"),
+        )
+
+    def test_matrix_driver_calls_share_one_translation_unit(self) -> None:
+        display = LED_STATUS_DISPLAY_CPP.read_text()
+        services = (ROOT / "src" / "FirmwareServices.h").read_text()
+        main = MAIN_CPP.read_text()
+        eeprom = (ROOT / "src" / "EepromLog.cpp").read_text()
+
+        self.assertIn("ArduinoLEDMatrix LedMatrix;", display)
+        self.assertIn("void initializeLedStatusDisplay();", services)
+        self.assertIn("void playStartupDisplayAnimation();", services)
+        self.assertIn("initializeLedStatusDisplay();", main)
+        self.assertIn("playStartupDisplayAnimation();", main)
+        self.assertNotIn("LedMatrix.", main)
+        self.assertNotIn("LedMatrix.", eeprom)
+        self.assertIn("LedMatrix.begin();", display)
+        self.assertIn("LedMatrix.loadSequence(LEDMATRIX_ANIMATION_STARTUP);", display)
+        self.assertIn("LedMatrix.beginDraw();", display)
+        self.assertIn("LedMatrix.endDraw();", display)
 
     def test_web_client_waits_for_first_byte_but_keeps_line_reads_short(self) -> None:
         state = FIRMWARE_STATE_H.read_text()
@@ -326,6 +401,48 @@ class SourceIntegrationTests(unittest.TestCase):
         self.assertIn("WebClientLineReadTimeoutMs = 50", state)
         self.assertIn("sawRequestByte ? WebClientLineReadTimeoutMs : WebClientFirstByteTimeoutMs", text)
         self.assertIn('requestLine.startsWith(F("GET /?"))', text)
+
+    def test_web_server_starts_when_wifi_is_already_connected(self) -> None:
+        network = (ROOT / "src" / "NetworkTime.cpp").read_text()
+
+        connected_branch = network.split(
+            "if (WiFi.status() == WL_CONNECTED)", 1
+        )[1].split("return;", 1)[0]
+        self.assertIn("startNetworkServices();", connected_branch)
+        self.assertIn("WebServer.begin();", network)
+        self.assertIn("Udp.begin(NtpLocalPort);", network)
+
+    def test_network_work_is_bounded_and_runs_after_irrigation_display(self) -> None:
+        state = FIRMWARE_STATE_H.read_text()
+        network = (ROOT / "src" / "NetworkTime.cpp").read_text()
+        main = MAIN_CPP.read_text()
+
+        self.assertIn("WifiConnectTimeoutMs = 1500", state)
+        self.assertIn("WifiModemCommandTimeoutMs = 750", state)
+        self.assertIn("CloudLogHttpTimeoutMs = 4000", state)
+        self.assertIn("modem.begin(115200, 1)", network)
+        self.assertIn("modem.timeout(WifiModemCommandTimeoutMs)", network)
+        self.assertIn("WiFi.setTimeout(WifiConnectTimeoutMs)", network)
+        self.assertIn("initializeWifiModem();", main)
+
+        setup = main.split("void setup()", 1)[1].split("void loop()", 1)[0]
+        self.assertNotIn("connectWifiIfNeeded();", setup)
+
+        irrigation = main.split("if (!DataGatheringActive)", 1)[1].split(
+            "return;", 1
+        )[0]
+        self.assertLess(
+            irrigation.index("updateIrrigationDisplayAnimation();"),
+            irrigation.index("handleWifi();"),
+        )
+        self.assertNotIn("LedMatrix.beginDraw();", irrigation)
+        self.assertNotIn("LedMatrix.endDraw();", irrigation)
+
+    def test_dashboard_does_not_queue_pipeline_polling(self) -> None:
+        ui = WEB_UI_CPP.read_text()
+
+        self.assertIn("setInterval(status,1000)", ui)
+        self.assertNotIn("setInterval(pipelineLog", ui)
 
     def test_cloud_logging_uses_smart_minute_evaluation_and_ten_minute_heartbeat(self) -> None:
         state = FIRMWARE_STATE_H.read_text()
@@ -380,6 +497,25 @@ class SourceIntegrationTests(unittest.TestCase):
         self.assertTrue(all(len(line) == 64 for line in lines[:-1]))
         self.assertLessEqual(len(lines[-1]), 64)
         self.assertEqual(base64.b64decode("".join(lines))[0], 0x30)
+
+    def test_cloud_history_decodes_chunked_google_response(self) -> None:
+        logger = (ROOT / "src" / "CloudLogger.cpp").read_text()
+
+        self.assertIn('headerValue(line, F("Transfer-Encoding:"))', logger)
+        self.assertIn("streamChunkedHttpBody(remote, client)", logger)
+        self.assertIn("strtoul(sizeLine.c_str(), nullptr, 16)", logger)
+        self.assertIn("chunkBytes == 0", logger)
+        self.assertIn("HttpHeaderLineMaxLength = 768", logger)
+        self.assertIn('remote.println(F("Accept-Encoding: identity"))', logger)
+
+    def test_cloud_logging_waits_for_initial_sensor_readings(self) -> None:
+        logger = (ROOT / "src" / "CloudLogger.cpp").read_text()
+
+        self.assertIn("bool cloudLogReadingsReady()", logger)
+        self.assertIn("GetSensorInputMode() == SensorInputMode::NotUsed", logger)
+        self.assertIn("Cells[cellIdx].GetLastRefreshMs() == 0", logger)
+        self.assertIn('setCloudLogMessage(F("sensor readings not ready"))', logger)
+        self.assertIn("if (!cloudLogReadingsReady())", logger)
 
 
 if __name__ == "__main__":

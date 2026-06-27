@@ -16,7 +16,6 @@ namespace GardenPump
     const int AnalogPins[NrCells] = {A0, A1, A2, A3};
 
     GardenCell Cells[NrCells];
-    ArduinoLEDMatrix LedMatrix;
     WiFiServer WebServer(HttpPort);
     WiFiUDP Udp;
     IPAddress NtpServer(162, 159, 200, 123);
@@ -67,31 +66,30 @@ void setup()
     loadConfig();
     applyI2cClock();
     RTC.begin();
-    LedMatrix.begin();
+    initializeLedStatusDisplay();
 
     Cells[0].Initialize(0, 0, 0, 0x36, AnalogPins[0]);
     Cells[1].Initialize(0, 5, 1, 0x37, AnalogPins[1]);
     Cells[2].Initialize(7, 0, 2, 0x38, AnalogPins[2]);
     Cells[3].Initialize(7, 5, 3, 0x39, AnalogPins[3]);
     applyConfig();
+    initializeWifiModem();
 
     printModeHelp();
     StartupStartedAtMs = millis();
     Serial.println(F("Waiting for WiFi/NTP before starting normal operation."));
-    connectWifiIfNeeded();
 
-    LedMatrix.loadSequence(LEDMATRIX_ANIMATION_STARTUP);
-    LedMatrix.play(true);
+    playStartupDisplayAnimation();
 }
 
 void loop()
 {
     handleSerialCommands();
-    handleWifi();
-    updatePipelineHistory();
 
     if (!OperationsStarted)
     {
+        handleWifi();
+        updatePipelineHistory();
         startOperationsIfReady();
         delay(UpdateDelayMs);
         return;
@@ -101,17 +99,17 @@ void loop()
     {
         if (millis() < IntroAnimEndsAtMs)
         {
+            handleWifi();
+            updatePipelineHistory();
             delay(1);
             return;
         }
         IntroFinished = true;
-        LedMatrix.clear();
     }
 
     if (!DataGatheringActive)
     {
         const int updatedCell = CurrentCell;
-        LedMatrix.beginDraw();
         Cells[updatedCell].RefreshSensor();
         Cells[updatedCell].UpdateWateringState();
         if (updatedCell < DiagnosticCells)
@@ -119,22 +117,19 @@ void loop()
             DataState.latest[updatedCell] = Cells[updatedCell].GetMoistureByte();
         }
         updateIrrigationScheduler();
-        for (int zoneIdx = 0; zoneIdx < NrCells; ++zoneIdx)
-        {
-            const int sensorIdx = GardenLogic::CoerceZoneSensor(zoneIdx, Config.zoneSensor[zoneIdx]);
-            Cells[zoneIdx].RenderFrom(LedMatrix, Cells[sensorIdx]);
-        }
+        updateIrrigationDisplayAnimation();
         CurrentCell = (CurrentCell + 1) % NrCells;
-        LedMatrix.endDraw();
+        handleWifi();
+        updatePipelineHistory();
         delay(UpdateDelayMs);
         return;
     }
 
     if (DataState.outOfMemory)
     {
-        LedMatrix.beginDraw();
         renderGatherModeDisplay();
-        LedMatrix.endDraw();
+        handleWifi();
+        updatePipelineHistory();
         delay(UpdateDelayMs);
         return;
     }
@@ -154,9 +149,9 @@ void loop()
         appendSample(snapshot);
     }
 
-    LedMatrix.beginDraw();
     renderGatherModeDisplay();
-    LedMatrix.endDraw();
 
+    handleWifi();
+    updatePipelineHistory();
     delay(UpdateDelayMs);
 }

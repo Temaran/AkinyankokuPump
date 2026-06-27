@@ -41,6 +41,8 @@ namespace GardenPump
     constexpr uint16_t MaxCalibrationRaw = 1023;
     constexpr unsigned long StatsScreenPeriodMs = 2500;
     constexpr unsigned long WifiRetryMs = 30000;
+    constexpr unsigned long WifiConnectTimeoutMs = 1500;
+    constexpr unsigned long WifiModemCommandTimeoutMs = 750;
     constexpr unsigned long WebClientFirstByteTimeoutMs = 1000;
     constexpr unsigned long WebClientLineReadTimeoutMs = 50;
     constexpr unsigned long NtpRetryMs = 300000;
@@ -69,7 +71,7 @@ namespace GardenPump
     constexpr unsigned long CloudLogHeartbeatMs = 10UL * 60UL * 1000UL;
     constexpr float CloudLogMoistureDeltaPercent = 1.0f;
     constexpr float CloudLogWaterDeltaMl = 100.0f;
-    constexpr unsigned long CloudLogHttpTimeoutMs = 10000UL;
+    constexpr unsigned long CloudLogHttpTimeoutMs = 4000UL;
 
     extern const char WifiHostname[];
     extern const int AnalogPins[NrCells];

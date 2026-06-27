@@ -48,11 +48,16 @@ namespace GardenPump
 
     void writePixel(int x, int y, bool on);
     void clearMatrix();
+    void initializeLedStatusDisplay();
+    void playStartupDisplayAnimation();
     void drawGlyph3x5(int startX, int startY, const uint8_t glyph[5]);
     void drawDigit3x5(int startX, int startY, int digit);
     void drawCountScreen(uint32_t count);
     void drawBarScreen(const uint8_t label[5], const uint8_t values[NrCells]);
     void drawText3x5(const uint8_t left[5], const uint8_t middle[5], const uint8_t right[5]);
+    void updateIrrigationDisplayAnimation();
+    void invalidateIrrigationDisplayAnimation();
+    void stopIrrigationDisplayAnimation();
     void renderGatherModeDisplay();
     void renderDumpDisplay();
 
@@ -94,6 +99,7 @@ namespace GardenPump
     const __FlashStringHelper* europeStockholmTimeZoneName(uint32_t utcUnixTime);
     uint32_t getCurrentTimestamp();
     String currentTimeString();
+    void initializeWifiModem();
     void connectWifiIfNeeded();
     void sendNtpPacket();
     bool syncTimeFromNtp();

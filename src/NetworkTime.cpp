@@ -1,11 +1,29 @@
 #include "FirmwareServices.h"
 
+#include <Modem.h>
 #include <RTC.h>
 
 #include "GardenLogic.h"
 
 namespace GardenPump
 {
+    namespace
+    {
+        void startNetworkServices()
+        {
+            if (!WebServerStarted)
+            {
+                WebServer.begin();
+                WebServerStarted = true;
+            }
+            if (!UdpStarted)
+            {
+                Udp.begin(NtpLocalPort);
+                UdpStarted = true;
+            }
+        }
+    }
+
     bool isLeapYear(int year)
     {
         return GardenLogic::IsLeapYear(year);
@@ -69,6 +87,15 @@ namespace GardenPump
         return formatted;
     }
 
+    void initializeWifiModem()
+    {
+        // WiFiS3's public connection timeout does not cover its internal
+        // modem commands, whose library default is ten seconds each.
+        modem.begin(115200, 1);
+        modem.timeout(WifiModemCommandTimeoutMs);
+        WiFi.setTimeout(WifiConnectTimeoutMs);
+    }
+
     void connectWifiIfNeeded()
     {
         if (!hasWifiConfig())
@@ -78,6 +105,7 @@ namespace GardenPump
 
         if (WiFi.status() == WL_CONNECTED)
         {
+            startNetworkServices();
             return;
         }
 
@@ -99,13 +127,7 @@ namespace GardenPump
         WifiStatus = WiFi.begin(Config.wifiSsid, Config.wifiPassword);
         if (WifiStatus == WL_CONNECTED)
         {
-            WebServer.begin();
-            WebServerStarted = true;
-            if (!UdpStarted)
-            {
-                Udp.begin(NtpLocalPort);
-                UdpStarted = true;
-            }
+            startNetworkServices();
             printWifiStatus();
             syncTimeFromNtp();
         }
@@ -147,7 +169,11 @@ namespace GardenPump
 
         LastNtpAttemptMs = millis();
         sendNtpPacket();
-        delay(1000);
+        const unsigned long responseWaitStartedMs = millis();
+        while ((millis() - responseWaitStartedMs) < 1000)
+        {
+            delay(1);
+        }
 
         if (!Udp.parsePacket())
         {

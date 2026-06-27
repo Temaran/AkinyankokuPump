@@ -1,11 +1,14 @@
 #include "FirmwareServices.h"
 
 #include <math.h>
+#include <stdlib.h>
 
 namespace GardenPump
 {
     namespace
     {
+        constexpr size_t HttpHeaderLineMaxLength = 768;
+
         const char GoogleTrustServicesRootR1[] =
             "-----BEGIN CERTIFICATE-----\n"
             "MIIFVzCCAz+gAwIBAgINAgPlk28xsBNJiGuiFzANBgkqhkiG9w0BAQwFADBHMQsw\n"
@@ -96,7 +99,7 @@ namespace GardenPump
                     {
                         return line;
                     }
-                    if (line.length() < 220)
+                    if (line.length() < HttpHeaderLineMaxLength)
                     {
                         line += ch;
                     }
@@ -134,6 +137,149 @@ namespace GardenPump
             String value = line.substring(name.length());
             value.trim();
             return value;
+        }
+
+        bool readHttpByte(WiFiClient& remote, uint8_t& value, unsigned long timeoutMs)
+        {
+            const unsigned long start = millis();
+            while ((millis() - start) < timeoutMs)
+            {
+                if (remote.available())
+                {
+                    value = static_cast<uint8_t>(remote.read());
+                    return true;
+                }
+                if (!remote.connected())
+                {
+                    return false;
+                }
+                delay(1);
+            }
+            return false;
+        }
+
+        bool streamExactHttpBytes(
+            WiFiClient& remote,
+            WiFiClient& client,
+            unsigned long byteCount)
+        {
+            uint8_t buffer[128];
+            unsigned long remaining = byteCount;
+            unsigned long lastProgressMs = millis();
+            while (remaining > 0)
+            {
+                const int available = remote.available();
+                if (available <= 0)
+                {
+                    if (!remote.connected() ||
+                        (millis() - lastProgressMs) >= CloudLogHttpTimeoutMs)
+                    {
+                        return false;
+                    }
+                    delay(1);
+                    continue;
+                }
+
+                const unsigned long wanted =
+                    min(remaining, static_cast<unsigned long>(sizeof(buffer)));
+                const int readCount = remote.read(
+                    buffer,
+                    min(available, static_cast<int>(wanted)));
+                if (readCount <= 0)
+                {
+                    continue;
+                }
+                if (!client.connected() ||
+                    client.write(buffer, static_cast<size_t>(readCount)) !=
+                        static_cast<size_t>(readCount))
+                {
+                    return false;
+                }
+                remaining -= static_cast<unsigned long>(readCount);
+                lastProgressMs = millis();
+            }
+            return true;
+        }
+
+        bool streamChunkedHttpBody(WiFiClient& remote, WiFiClient& client)
+        {
+            while (true)
+            {
+                String sizeLine = readHttpLine(remote, CloudLogHttpTimeoutMs);
+                const int extensionStart = sizeLine.indexOf(';');
+                if (extensionStart >= 0)
+                {
+                    sizeLine.remove(extensionStart);
+                }
+                sizeLine.trim();
+                if (sizeLine.length() == 0)
+                {
+                    return false;
+                }
+
+                const unsigned long chunkBytes =
+                    strtoul(sizeLine.c_str(), nullptr, 16);
+                if (chunkBytes == 0)
+                {
+                    while (remote.connected() || remote.available())
+                    {
+                        if (readHttpLine(remote, CloudLogHttpTimeoutMs).length() == 0)
+                        {
+                            break;
+                        }
+                    }
+                    return true;
+                }
+
+                if (!streamExactHttpBytes(remote, client, chunkBytes))
+                {
+                    return false;
+                }
+
+                uint8_t carriageReturn = 0;
+                uint8_t lineFeed = 0;
+                if (!readHttpByte(remote, carriageReturn, CloudLogHttpTimeoutMs) ||
+                    !readHttpByte(remote, lineFeed, CloudLogHttpTimeoutMs) ||
+                    carriageReturn != '\r' ||
+                    lineFeed != '\n')
+                {
+                    return false;
+                }
+            }
+        }
+
+        bool streamHttpBodyUntilClose(WiFiClient& remote, WiFiClient& client)
+        {
+            uint8_t buffer[128];
+            unsigned long lastProgressMs = millis();
+            while (remote.connected() || remote.available())
+            {
+                const int available = remote.available();
+                if (available <= 0)
+                {
+                    if ((millis() - lastProgressMs) >= CloudLogHttpTimeoutMs)
+                    {
+                        return false;
+                    }
+                    delay(1);
+                    continue;
+                }
+
+                const int readCount =
+                    remote.read(buffer, min(available, static_cast<int>(sizeof(buffer))));
+                if (readCount <= 0)
+                {
+                    continue;
+                }
+                if (!client.connected() ||
+                    client.write(buffer, static_cast<size_t>(readCount)) !=
+                        static_cast<size_t>(readCount))
+                {
+                    return false;
+                }
+                lastProgressMs = millis();
+            }
+            return true;
         }
 
         bool sendHttpsPostJson(const String& url, const String& body)
@@ -214,11 +360,13 @@ namespace GardenPump
             remote.println(parsed.host);
             remote.println(F("User-Agent: GardenPump/0.1"));
             remote.println(F("Connection: close"));
+            remote.println(F("Accept-Encoding: identity"));
             remote.println();
 
             const String statusLine = readHttpLine(remote, CloudLogHttpTimeoutMs);
             const int status = httpStatusCode(statusLine);
             String location;
+            String transferEncoding;
 
             while (remote.connected() || remote.available())
             {
@@ -230,6 +378,10 @@ namespace GardenPump
                 if (location.length() == 0)
                 {
                     location = headerValue(line, F("Location:"));
+                }
+                if (transferEncoding.length() == 0)
+                {
+                    transferEncoding = headerValue(line, F("Transfer-Encoding:"));
                 }
             }
 
@@ -246,16 +398,18 @@ namespace GardenPump
             }
 
             sendHttpHeaders(client, "application/json");
-            const unsigned long start = millis();
-            while ((remote.connected() || remote.available()) && (millis() - start) < CloudLogHttpTimeoutMs)
+            transferEncoding.toLowerCase();
+            if (transferEncoding.indexOf(F("chunked")) >= 0)
             {
-                while (remote.available())
-                {
-                    client.write(static_cast<uint8_t>(remote.read()));
-                }
-                delay(1);
+                streamChunkedHttpBody(remote, client);
+            }
+            else
+            {
+                streamHttpBodyUntilClose(remote, client);
             }
             remote.stop();
+            // Headers have already been sent to the browser, so this request is
+            // handled even if the browser disconnected while the body streamed.
             return true;
         }
 
@@ -268,6 +422,24 @@ namespace GardenPump
             url += F("&limit=");
             url += limit;
             return url;
+        }
+
+        bool cloudLogReadingsReady()
+        {
+            bool hasInstalledSensor = false;
+            for (int cellIdx = 0; cellIdx < NrCells; ++cellIdx)
+            {
+                if (Cells[cellIdx].GetSensorInputMode() == SensorInputMode::NotUsed)
+                {
+                    continue;
+                }
+                hasInstalledSensor = true;
+                if (Cells[cellIdx].GetLastRefreshMs() == 0)
+                {
+                    return false;
+                }
+            }
+            return hasInstalledSensor;
         }
     }
 
@@ -340,6 +512,13 @@ namespace GardenPump
             setCloudLogMessage(F("not configured"));
             return false;
         }
+        if (!cloudLogReadingsReady())
+        {
+            LastCloudLogOk = false;
+            LastCloudLogHttpStatus = 0;
+            setCloudLogMessage(F("sensor readings not ready"));
+            return false;
+        }
         if (!TimeSynced && !syncTimeFromNtp())
         {
             LastCloudLogOk = false;
@@ -388,6 +567,10 @@ namespace GardenPump
     void updateCloudLogger()
     {
         if (!OperationsStarted || DataGatheringActive)
+        {
+            return;
+        }
+        if (!cloudLogReadingsReady())
         {
             return;
         }

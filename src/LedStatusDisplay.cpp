@@ -1,9 +1,25 @@
 #include "FirmwareServices.h"
 
+#include <string.h>
+
+#include "GardenLogic.h"
+
 namespace GardenPump
 {
+    ArduinoLEDMatrix LedMatrix;
+
     namespace
     {
+        constexpr int kMatrixWidth = 12;
+        constexpr int kMatrixHeight = 8;
+        constexpr unsigned long kWateringAnimationRevolutionMs = 1000;
+        constexpr unsigned long kWateringAnimationFrameMs =
+            kWateringAnimationRevolutionMs / GardenWateringAnimLength;
+        uint32_t IrrigationAnimationFrames[2][GardenWateringAnimLength][4] = {};
+        int ActiveIrrigationAnimationBuffer = 0;
+        uint16_t LastIrrigationVisualState = 0;
+        bool IrrigationDisplayInitialized = false;
+
         constexpr uint8_t kFontDigits[10][5] = {
             {0b111, 0b101, 0b101, 0b101, 0b111},
             {0b010, 0b110, 0b010, 0b010, 0b111},
@@ -26,10 +42,122 @@ namespace GardenPump
         constexpr uint8_t kFontG[5] = {0b111, 0b100, 0b101, 0b101, 0b111};
         constexpr uint8_t kFontD[5] = {0b110, 0b101, 0b101, 0b101, 0b110};
         constexpr uint8_t kFontP[5] = {0b110, 0b101, 0b110, 0b100, 0b100};
+
+        uint8_t irrigationVisualState(const GardenCell& sourceCell)
+        {
+            uint8_t state = 0;
+            if (!sourceCell.HasConnected())
+            {
+                state = 0;
+            }
+            else if (sourceCell.HasError())
+            {
+                state = 1;
+            }
+            else if (sourceCell.ShouldWater())
+            {
+                state = 2;
+            }
+            else
+            {
+                state = 3;
+            }
+
+            const int moistureDots =
+                sourceCell.HasConnected() && !sourceCell.HasError()
+                    ? GardenLogic::MoistureDotCount(
+                          sourceCell.GetMoistnessNorm(),
+                          sourceCell.GetStartWateringThresholdNorm(),
+                          sourceCell.GetStopWateringThresholdNorm())
+                    : 0;
+            return static_cast<uint8_t>(state | (moistureDots << 2));
+        }
+
+        uint16_t currentIrrigationVisualState()
+        {
+            uint16_t signature = 0;
+            for (int zoneIdx = 0; zoneIdx < NrCells; ++zoneIdx)
+            {
+                const int sensorIdx =
+                    GardenLogic::CoerceZoneSensor(zoneIdx, Config.zoneSensor[zoneIdx]);
+                signature |= static_cast<uint16_t>(
+                    irrigationVisualState(Cells[sensorIdx]) << (zoneIdx * 4));
+            }
+            return signature;
+        }
     }
 }
 namespace GardenPump
 {
+    void initializeLedStatusDisplay()
+    {
+        LedMatrix.begin();
+    }
+
+    void playStartupDisplayAnimation()
+    {
+        noInterrupts();
+        LedMatrix.loadSequence(LEDMATRIX_ANIMATION_STARTUP);
+        LedMatrix.play(true);
+        interrupts();
+    }
+
+    void invalidateIrrigationDisplayAnimation()
+    {
+        IrrigationDisplayInitialized = false;
+    }
+
+    void stopIrrigationDisplayAnimation()
+    {
+        noInterrupts();
+        LedMatrix.clear();
+        interrupts();
+        IrrigationDisplayInitialized = false;
+    }
+
+    void updateIrrigationDisplayAnimation()
+    {
+        const uint16_t visualState = currentIrrigationVisualState();
+        if (IrrigationDisplayInitialized && visualState == LastIrrigationVisualState)
+        {
+            return;
+        }
+
+        const int nextBuffer = 1 - ActiveIrrigationAnimationBuffer;
+        uint8_t pixels[kMatrixHeight][kMatrixWidth];
+        for (int frameIdx = 0; frameIdx < GardenWateringAnimLength; ++frameIdx)
+        {
+            memset(pixels, 0, sizeof(pixels));
+            for (int zoneIdx = 0; zoneIdx < NrCells; ++zoneIdx)
+            {
+                const int sensorIdx =
+                    GardenLogic::CoerceZoneSensor(zoneIdx, Config.zoneSensor[zoneIdx]);
+                Cells[zoneIdx].RenderFrameToBuffer(
+                    &pixels[0][0],
+                    kMatrixWidth,
+                    kMatrixHeight,
+                    Cells[sensorIdx],
+                    frameIdx);
+            }
+
+            ArduinoLEDMatrix::loadPixelsToBuffer(
+                &pixels[0][0],
+                sizeof(pixels),
+                IrrigationAnimationFrames[nextBuffer][frameIdx]);
+            IrrigationAnimationFrames[nextBuffer][frameIdx][3] =
+                kWateringAnimationFrameMs;
+        }
+
+        noInterrupts();
+        LedMatrix.loadSequence(IrrigationAnimationFrames[nextBuffer]);
+        LedMatrix.play(true);
+        ActiveIrrigationAnimationBuffer = nextBuffer;
+        interrupts();
+
+        LastIrrigationVisualState = visualState;
+        IrrigationDisplayInitialized = true;
+    }
+
     void writePixel(int x, int y, bool on)
     {
         const uint8_t value = on ? 255 : 0;
@@ -110,9 +238,11 @@ namespace GardenPump
 
     void renderGatherModeDisplay()
     {
+        LedMatrix.beginDraw();
         if (DataState.outOfMemory)
         {
             drawText3x5(kFontO, kFontO, kFontM);
+            LedMatrix.endDraw();
             return;
         }
 
@@ -135,10 +265,13 @@ namespace GardenPump
                 drawBarScreen(kFontL, DataState.minValues);
                 break;
         }
+        LedMatrix.endDraw();
     }
 
     void renderDumpDisplay()
     {
+        LedMatrix.beginDraw();
         drawText3x5(kFontD, kFontM, kFontP);
+        LedMatrix.endDraw();
     }
 }

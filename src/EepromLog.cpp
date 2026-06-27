@@ -282,11 +282,13 @@ namespace GardenPump
     void enterIrrigationMode()
     {
         DataGatheringActive = false;
+        invalidateIrrigationDisplayAnimation();
         Serial.println(F("Entered irrigation mode."));
     }
 
     void enterGatherMode()
     {
+        stopIrrigationDisplayAnimation();
         DataGatheringActive = true;
         beginGatherMode();
     }
@@ -317,9 +319,8 @@ namespace GardenPump
             Cells[cellIdx].ForceDefaultSolenoidState();
         }
 
-        LedMatrix.beginDraw();
+        stopIrrigationDisplayAnimation();
         renderDumpDisplay();
-        LedMatrix.endDraw();
 
         Serial.println(eraseAfterDump
             ? F("Serial command DUMP received. Dumping EEPROM, erasing it, then resetting." )
