@@ -16,6 +16,7 @@ LED_STATUS_DISPLAY_CPP = ROOT / "src" / "LedStatusDisplay.cpp"
 WEB_UI_CPP = ROOT / "src" / "WebUI.cpp"
 HTTP_API_CPP = ROOT / "src" / "HttpApi.cpp"
 FIRMWARE_STATE_H = ROOT / "src" / "FirmwareState.h"
+RUNTIME_DIAGNOSTICS_CPP = ROOT / "src" / "RuntimeDiagnostics.cpp"
 
 
 class ValidationTests(unittest.TestCase):
@@ -393,6 +394,43 @@ class SourceIntegrationTests(unittest.TestCase):
         self.assertIn("LedMatrix.loadSequence(LEDMATRIX_ANIMATION_STARTUP);", display)
         self.assertIn("LedMatrix.beginDraw();", display)
         self.assertIn("LedMatrix.endDraw();", display)
+
+    def test_retained_runtime_diagnostics_record_the_last_stage(self) -> None:
+        runtime = RUNTIME_DIAGNOSTICS_CPP.read_text()
+        state = FIRMWARE_STATE_H.read_text()
+        services = (ROOT / "src" / "FirmwareServices.h").read_text()
+        main = MAIN_CPP.read_text()
+
+        self.assertIn("RetainedRuntimeDiagnosticsEnabled = true", state)
+        self.assertIn("RuntimeBackupRegisterOffset = 64", state)
+        self.assertIn("enum class RuntimeStage", state)
+        self.assertIn("struct RuntimeMetrics", state)
+        self.assertIn("R_SYSTEM->VBTBKR", runtime)
+        self.assertIn("RuntimeBackupVersion", runtime)
+        self.assertIn("BackupChecksumOffset", runtime)
+        self.assertIn("backupChecksum()", runtime)
+        self.assertIn("R_SYSTEM->PRCR = BackupRegisterUnlock", runtime)
+        self.assertIn("R_SYSTEM->PRCR = BackupRegisterLock", runtime)
+        self.assertNotIn("WDT.begin", runtime)
+        self.assertIn("void initializeRuntimeDiagnostics();", services)
+        self.assertIn("void setRuntimeStage(RuntimeStage stage);", services)
+        self.assertIn("void printRuntimeDiagnostics(Print& out);", services)
+        self.assertIn("initializeRuntimeDiagnostics();", main)
+        self.assertIn("beginControlLoopIteration();", main)
+        self.assertIn("completeControlLoopIteration();", main)
+        self.assertIn("setRuntimeStage(RuntimeStage::SensorRead);", main)
+        self.assertIn("setRuntimeStage(RuntimeStage::Irrigation);", main)
+
+    def test_runtime_diagnostics_are_reported_over_serial_and_http(self) -> None:
+        serial = (ROOT / "src" / "SerialCommands.cpp").read_text()
+        api = HTTP_API_CPP.read_text()
+
+        self.assertIn("RUNTIME_STATUS", serial)
+        self.assertIn("printRuntimeDiagnostics(Serial);", serial)
+        self.assertIn('\\"runtimeStage\\":\\"', api)
+        self.assertIn('\\"previousResetStage\\":\\"', api)
+        self.assertIn('\\"maxLoopMs\\":', api)
+        self.assertIn("printRuntimeDiagnostics(client);", api)
 
     def test_web_client_waits_for_first_byte_but_keeps_line_reads_short(self) -> None:
         state = FIRMWARE_STATE_H.read_text()

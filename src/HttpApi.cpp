@@ -27,6 +27,19 @@ namespace GardenPump
         client.print(SimulationEnabled ? F("true") : F("false"));
         client.print(F(",\"operationsStarted\":"));
         client.print(OperationsStarted ? F("true") : F("false"));
+        client.print(F(",\"runtimeStage\":\""));
+        client.print(runtimeStageName(Runtime.currentStage));
+        client.print(F("\",\"lastLoopMs\":"));
+        client.print(Runtime.lastLoopMs);
+        client.print(F(",\"maxLoopMs\":"));
+        client.print(Runtime.maxLoopMs);
+        client.print(F(",\"watchdogResets\":"));
+        client.print(Runtime.watchdogResetCount);
+        client.print(F(",\"previousResetWasWatchdog\":"));
+        client.print(Runtime.previousResetWasWatchdog ? F("true") : F("false"));
+        client.print(F(",\"previousResetStage\":\""));
+        client.print(runtimeStageName(Runtime.previousResetStage));
+        client.print('"');
         client.print(F(",\"startupTimeWaitTimedOut\":"));
         client.print(StartupTimeWaitTimedOut ? F("true") : F("false"));
         client.print(F(",\"forcedIrrigationZone\":"));
@@ -194,6 +207,8 @@ namespace GardenPump
             DataState.latest[cellIdx] = snapshot.moisture[cellIdx];
         }
         printSensorDiagnostics(client, snapshot);
+        client.println();
+        printRuntimeDiagnostics(client);
     }
 
     void sendTextI2CScan(WiFiClient& client)
@@ -943,6 +958,8 @@ namespace GardenPump
             return;
         }
 
+        setRuntimeStage(RuntimeStage::WebRequest);
+        noteWebRequest();
         String requestLine = "";
         bool sawRequestByte = false;
         unsigned long start = millis();

@@ -54,6 +54,7 @@ namespace GardenPump
     unsigned long LastWifiAttemptMs = 0;
     unsigned long LastNtpAttemptMs = 0;
     unsigned long StartupStartedAtMs = 0;
+    RuntimeMetrics Runtime;
 }
 
 using namespace GardenPump;
@@ -61,6 +62,7 @@ using namespace GardenPump;
 void setup()
 {
     Serial.begin(115200);
+    initializeRuntimeDiagnostics();
     Wire.begin();
     analogReadResolution(10);
     loadConfig();
@@ -84,6 +86,8 @@ void setup()
 
 void loop()
 {
+    beginControlLoopIteration();
+    setRuntimeStage(RuntimeStage::Serial);
     handleSerialCommands();
 
     if (!OperationsStarted)
@@ -91,6 +95,7 @@ void loop()
         handleWifi();
         updatePipelineHistory();
         startOperationsIfReady();
+        completeControlLoopIteration();
         delay(UpdateDelayMs);
         return;
     }
@@ -101,6 +106,7 @@ void loop()
         {
             handleWifi();
             updatePipelineHistory();
+            completeControlLoopIteration();
             delay(1);
             return;
         }
@@ -110,17 +116,20 @@ void loop()
     if (!DataGatheringActive)
     {
         const int updatedCell = CurrentCell;
+        setRuntimeStage(RuntimeStage::SensorRead);
         Cells[updatedCell].RefreshSensor();
         Cells[updatedCell].UpdateWateringState();
         if (updatedCell < DiagnosticCells)
         {
             DataState.latest[updatedCell] = Cells[updatedCell].GetMoistureByte();
         }
+        setRuntimeStage(RuntimeStage::Irrigation);
         updateIrrigationScheduler();
         updateIrrigationDisplayAnimation();
         CurrentCell = (CurrentCell + 1) % NrCells;
         handleWifi();
         updatePipelineHistory();
+        completeControlLoopIteration();
         delay(UpdateDelayMs);
         return;
     }
@@ -130,10 +139,12 @@ void loop()
         renderGatherModeDisplay();
         handleWifi();
         updatePipelineHistory();
+        completeControlLoopIteration();
         delay(UpdateDelayMs);
         return;
     }
 
+    setRuntimeStage(RuntimeStage::SensorRead);
     Cells[CurrentCell].RefreshSensor();
     Cells[CurrentCell].ForceDefaultSolenoidState();
     if (CurrentCell < DiagnosticCells)
@@ -144,6 +155,7 @@ void loop()
 
     if ((millis() - DataState.lastWriteMs) >= logIntervalMs())
     {
+        setRuntimeStage(RuntimeStage::Eeprom);
         SensorSnapshot snapshot;
         snapshotCachedCells(snapshot);
         appendSample(snapshot);
@@ -153,5 +165,6 @@ void loop()
 
     handleWifi();
     updatePipelineHistory();
+    completeControlLoopIteration();
     delay(UpdateDelayMs);
 }

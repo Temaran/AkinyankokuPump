@@ -294,6 +294,7 @@ namespace GardenPump
 
             WiFiSSLClient remote;
             remote.setCACert(GoogleTrustServicesRootR1);
+            setRuntimeStage(RuntimeStage::CloudConnect);
             if (!remote.connect(parsed.host.c_str(), 443))
             {
                 LastCloudLogHttpStatus = 0;
@@ -312,8 +313,10 @@ namespace GardenPump
             remote.print(F("Content-Length: "));
             remote.println(body.length());
             remote.println();
+            setRuntimeStage(RuntimeStage::CloudBody);
             remote.print(body);
 
+            setRuntimeStage(RuntimeStage::CloudHeaders);
             const String statusLine = readHttpLine(remote, CloudLogHttpTimeoutMs);
             const int status = httpStatusCode(statusLine);
             LastCloudLogHttpStatus = status;
@@ -348,6 +351,7 @@ namespace GardenPump
 
             WiFiSSLClient remote;
             remote.setCACert(GoogleTrustServicesRootR1);
+            setRuntimeStage(RuntimeStage::HistoryConnect);
             if (!remote.connect(parsed.host.c_str(), 443))
             {
                 return false;
@@ -363,6 +367,7 @@ namespace GardenPump
             remote.println(F("Accept-Encoding: identity"));
             remote.println();
 
+            setRuntimeStage(RuntimeStage::HistoryHeaders);
             const String statusLine = readHttpLine(remote, CloudLogHttpTimeoutMs);
             const int status = httpStatusCode(statusLine);
             String location;
@@ -398,6 +403,7 @@ namespace GardenPump
             }
 
             sendHttpHeaders(client, "application/json");
+            setRuntimeStage(RuntimeStage::HistoryBody);
             transferEncoding.toLowerCase();
             if (transferEncoding.indexOf(F("chunked")) >= 0)
             {
@@ -555,7 +561,9 @@ namespace GardenPump
         }
         body += '}';
 
+        noteCloudAttempt();
         LastCloudLogOk = sendHttpsPostJson(Config.cloudLogEndpoint, body);
+        noteCloudResult(LastCloudLogOk);
         if (LastCloudLogOk)
         {
             LastCloudLogSnapshot = snapshot;

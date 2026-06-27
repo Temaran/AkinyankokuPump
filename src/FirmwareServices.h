@@ -4,6 +4,17 @@
 
 namespace GardenPump
 {
+    const __FlashStringHelper* runtimeStageName(RuntimeStage stage);
+    void initializeRuntimeDiagnostics();
+    void setRuntimeStage(RuntimeStage stage);
+    void beginControlLoopIteration();
+    void completeControlLoopIteration();
+    void noteWebRequest();
+    void noteCloudAttempt();
+    void noteCloudResult(bool success);
+    void noteWifiReconnect();
+    void printRuntimeDiagnostics(Print& out);
+
     int logEndAddress();
     int logStartAddress();
 

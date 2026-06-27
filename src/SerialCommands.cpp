@@ -23,6 +23,7 @@ namespace GardenPump
         Serial.println(F("  SET_LOG_ENDPOINT <https-url> = save Google Apps Script log endpoint"));
         Serial.println(F("  SET_LOG_TOKEN <token> = save cloud log secret token"));
         Serial.println(F("  LOG_STATUS = print cloud log config and last send result"));
+        Serial.println(F("  RUNTIME_STATUS = print retained reset and loop diagnostics"));
         Serial.println(F("  LOG_TEST = send one cloud log row now"));
         Serial.println(F("  CLEAR_LOG_ENDPOINT = remove cloud logging endpoint and token"));
         Serial.println(F("  SYNC_TIME = retry NTP time sync"));
@@ -112,6 +113,12 @@ namespace GardenPump
         if (commandUpper == F("LOG_STATUS"))
         {
             printCloudLogStatus(Serial);
+            return;
+        }
+
+        if (commandUpper == F("RUNTIME_STATUS"))
+        {
+            printRuntimeDiagnostics(Serial);
             return;
         }
 

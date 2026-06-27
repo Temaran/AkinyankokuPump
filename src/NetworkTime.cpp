@@ -124,9 +124,11 @@ namespace GardenPump
         Serial.print(F("Connecting to WiFi SSID: "));
         Serial.println(Config.wifiSsid);
         WiFi.setHostname(WifiHostname);
+        setRuntimeStage(RuntimeStage::WifiConnect);
         WifiStatus = WiFi.begin(Config.wifiSsid, Config.wifiPassword);
         if (WifiStatus == WL_CONNECTED)
         {
+            noteWifiReconnect();
             startNetworkServices();
             printWifiStatus();
             syncTimeFromNtp();
@@ -168,6 +170,7 @@ namespace GardenPump
         }
 
         LastNtpAttemptMs = millis();
+        setRuntimeStage(RuntimeStage::Ntp);
         sendNtpPacket();
         const unsigned long responseWaitStartedMs = millis();
         while ((millis() - responseWaitStartedMs) < 1000)

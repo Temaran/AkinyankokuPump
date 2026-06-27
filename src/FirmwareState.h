@@ -72,6 +72,47 @@ namespace GardenPump
     constexpr float CloudLogMoistureDeltaPercent = 1.0f;
     constexpr float CloudLogWaterDeltaMl = 100.0f;
     constexpr unsigned long CloudLogHttpTimeoutMs = 4000UL;
+    constexpr bool RetainedRuntimeDiagnosticsEnabled = true;
+    constexpr int RuntimeBackupRegisterOffset = 64;
+
+    enum class RuntimeStage : uint8_t
+    {
+        Boot = 0,
+        Idle = 1,
+        Serial = 2,
+        SensorRead = 3,
+        Irrigation = 4,
+        WebRequest = 5,
+        WifiConnect = 6,
+        CloudConnect = 7,
+        CloudHeaders = 8,
+        CloudBody = 9,
+        HistoryConnect = 10,
+        HistoryHeaders = 11,
+        HistoryBody = 12,
+        Ntp = 13,
+        Eeprom = 14,
+    };
+
+    struct RuntimeMetrics
+    {
+        RuntimeStage currentStage = RuntimeStage::Boot;
+        RuntimeStage previousResetStage = RuntimeStage::Boot;
+        unsigned long currentStageStartedMs = 0;
+        unsigned long previousStageStartedMs = 0;
+        unsigned long loopStartedMs = 0;
+        unsigned long lastLoopMs = 0;
+        unsigned long maxLoopMs = 0;
+        uint32_t loopCount = 0;
+        uint32_t webRequestCount = 0;
+        uint32_t cloudAttemptCount = 0;
+        uint32_t cloudSuccessCount = 0;
+        uint32_t cloudFailureCount = 0;
+        uint32_t consecutiveCloudFailures = 0;
+        uint32_t wifiReconnectCount = 0;
+        uint32_t watchdogResetCount = 0;
+        bool previousResetWasWatchdog = false;
+    };
 
     extern const char WifiHostname[];
     extern const int AnalogPins[NrCells];
@@ -334,4 +375,5 @@ namespace GardenPump
     extern unsigned long LastWifiAttemptMs;
     extern unsigned long LastNtpAttemptMs;
     extern unsigned long StartupStartedAtMs;
+    extern RuntimeMetrics Runtime;
 }
