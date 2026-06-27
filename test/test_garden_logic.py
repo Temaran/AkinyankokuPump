@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 import re
 import unittest
 from pathlib import Path
@@ -578,6 +577,7 @@ class SourceIntegrationTests(unittest.TestCase):
         self.assertIn("CloudLogHeartbeatMs = 10UL * 60UL * 1000UL", state)
         self.assertIn("CloudLogMoistureDeltaPercent = 1.0f", state)
         self.assertIn("CloudLogWaterDeltaMl = 100.0f", state)
+        self.assertIn("CloudLogResponseTimeoutMs = 12000UL", state)
         self.assertIn("struct PumpConfigV6", state)
         self.assertIn("char cloudLogEndpoint", state)
         self.assertIn("char cloudLogToken", state)
@@ -603,20 +603,34 @@ class SourceIntegrationTests(unittest.TestCase):
         self.assertIn("Connectivity firmware:", network)
         self.assertIn("WIFI_FIRMWARE_LATEST_VERSION", network)
         self.assertIn("!TimeSynced && !syncTimeFromNtp()", logger)
-        self.assertIn("GoogleTrustServicesRootR1", logger)
-        self.assertIn("remote.setCACert(GoogleTrustServicesRootR1)", logger)
+        self.assertNotIn("GoogleTrustServicesRootR1", logger)
+        self.assertNotIn("remote.setCACert(", logger)
+        self.assertGreaterEqual(logger.count("WiFiSSLClient remote;"), 2)
+        self.assertIn("#include <Modem.h>", logger)
+        self.assertIn("class ScopedCloudModemTimeout", logger)
+        self.assertIn("modem.timeout(CloudLogHttpTimeoutMs);", logger)
+        self.assertIn("modem.timeout(WifiModemCommandTimeoutMs);", logger)
+        self.assertIn("remote.setConnectionTimeout(CloudLogHttpTimeoutMs);", logger)
         self.assertIn('command.indexOf(F("[I]"))', serial)
 
-    def test_cloud_logger_ca_uses_standard_pem_line_wrapping(self) -> None:
+    def test_repeated_cloud_failures_reset_the_wifi_session(self) -> None:
         logger = (ROOT / "src" / "CloudLogger.cpp").read_text()
-        certificate = logger.split('"-----BEGIN CERTIFICATE-----\\n"', 1)[1]
-        certificate = certificate.split('"-----END CERTIFICATE-----\\n"', 1)[0]
-        lines = re.findall(r'"([A-Za-z0-9+/=]+)\\n"', certificate)
 
-        self.assertGreater(len(lines), 1)
-        self.assertTrue(all(len(line) == 64 for line in lines[:-1]))
-        self.assertLessEqual(len(lines[-1]), 64)
-        self.assertEqual(base64.b64decode("".join(lines))[0], 0x30)
+        self.assertIn("Runtime.consecutiveCloudFailures >= 3", logger)
+        recovery = logger.split("Runtime.consecutiveCloudFailures >= 3", 1)[1]
+        self.assertIn("watchdogProgress();", recovery)
+        self.assertIn("WiFi.disconnect();", recovery)
+        self.assertIn("WebServerStarted = false;", recovery)
+        self.assertIn("UdpStarted = false;", recovery)
+        self.assertIn("LastWifiAttemptMs = 0;", recovery)
+        self.assertIn("Runtime.consecutiveCloudFailures = 0;", recovery)
+        self.assertIn('setCloudLogMessage(F("wifi reset after failures"))', recovery)
+
+    def test_cloud_logger_uses_connectivity_firmware_ca_bundle(self) -> None:
+        logger = (ROOT / "src" / "CloudLogger.cpp").read_text()
+
+        self.assertNotIn("-----BEGIN CERTIFICATE-----", logger)
+        self.assertIn("remote.setConnectionTimeout(CloudLogHttpTimeoutMs);", logger)
 
     def test_cloud_history_decodes_chunked_google_response(self) -> None:
         logger = (ROOT / "src" / "CloudLogger.cpp").read_text()

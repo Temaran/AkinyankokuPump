@@ -2,9 +2,9 @@
 
 ## Before outdoor deployment
 
-- Reapply and hardware-verify crash recovery incrementally:
-  - retained crash-stage instrumentation
-  - watchdog recovery after startup is complete
-  - safe relay state during recovery
-- Send a forced Google Sheet test row over Serial while no sensors are attached, and confirm it appears in the sheet.
-- Exercise the WebUI Stats graph repeatedly while irrigation animation and cloud/network activity are running; confirm the graph loads and the board remains responsive.
+- [x] Reapply and hardware-verify crash recovery incrementally:
+  - [x] retained crash-stage instrumentation
+  - [x] watchdog recovery after startup is complete
+  - [x] safe relay state during recovery
+- [x] Send a forced Google Sheet test row over Serial and confirm it appears in the sheet.
+- [x] Exercise the WebUI Stats graph repeatedly while irrigation animation and cloud/network activity are running; confirm the graph loads and the board remains responsive.

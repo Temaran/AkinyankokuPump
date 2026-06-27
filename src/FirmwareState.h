@@ -72,6 +72,7 @@ namespace GardenPump
     constexpr float CloudLogMoistureDeltaPercent = 1.0f;
     constexpr float CloudLogWaterDeltaMl = 100.0f;
     constexpr unsigned long CloudLogHttpTimeoutMs = 4000UL;
+    constexpr unsigned long CloudLogResponseTimeoutMs = 12000UL;
     constexpr bool RetainedRuntimeDiagnosticsEnabled = true;
     constexpr unsigned long WatchdogTimeoutMs = 5000UL;
     constexpr bool HardwareWatchdogEnabled = true;
