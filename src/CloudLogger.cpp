@@ -88,6 +88,7 @@ namespace GardenPump
             const unsigned long start = millis();
             while ((millis() - start) < timeoutMs)
             {
+                watchdogProgress();
                 while (client.available())
                 {
                     const char ch = static_cast<char>(client.read());
@@ -144,6 +145,7 @@ namespace GardenPump
             const unsigned long start = millis();
             while ((millis() - start) < timeoutMs)
             {
+                watchdogProgress();
                 if (remote.available())
                 {
                     value = static_cast<uint8_t>(remote.read());
@@ -168,6 +170,7 @@ namespace GardenPump
             unsigned long lastProgressMs = millis();
             while (remaining > 0)
             {
+                watchdogProgress();
                 const int available = remote.available();
                 if (available <= 0)
                 {
@@ -197,6 +200,7 @@ namespace GardenPump
                 }
                 remaining -= static_cast<unsigned long>(readCount);
                 lastProgressMs = millis();
+                watchdogProgress();
             }
             return true;
         }
@@ -205,6 +209,7 @@ namespace GardenPump
         {
             while (true)
             {
+                watchdogProgress();
                 String sizeLine = readHttpLine(remote, CloudLogHttpTimeoutMs);
                 const int extensionStart = sizeLine.indexOf(';');
                 if (extensionStart >= 0)
@@ -254,6 +259,7 @@ namespace GardenPump
             unsigned long lastProgressMs = millis();
             while (remote.connected() || remote.available())
             {
+                watchdogProgress();
                 const int available = remote.available();
                 if (available <= 0)
                 {
@@ -278,6 +284,7 @@ namespace GardenPump
                     return false;
                 }
                 lastProgressMs = millis();
+                watchdogProgress();
             }
             return true;
         }
@@ -295,7 +302,10 @@ namespace GardenPump
             WiFiSSLClient remote;
             remote.setCACert(GoogleTrustServicesRootR1);
             setRuntimeStage(RuntimeStage::CloudConnect);
-            if (!remote.connect(parsed.host.c_str(), 443))
+            watchdogProgress();
+            const bool connected = remote.connect(parsed.host.c_str(), 443);
+            watchdogProgress();
+            if (!connected)
             {
                 LastCloudLogHttpStatus = 0;
                 setCloudLogMessage(F("connect failed"));
@@ -352,7 +362,10 @@ namespace GardenPump
             WiFiSSLClient remote;
             remote.setCACert(GoogleTrustServicesRootR1);
             setRuntimeStage(RuntimeStage::HistoryConnect);
-            if (!remote.connect(parsed.host.c_str(), 443))
+            watchdogProgress();
+            const bool connected = remote.connect(parsed.host.c_str(), 443);
+            watchdogProgress();
+            if (!connected)
             {
                 return false;
             }

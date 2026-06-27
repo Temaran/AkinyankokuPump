@@ -966,6 +966,7 @@ namespace GardenPump
         unsigned long lastByteMs = start;
         while (client.connected())
         {
+            watchdogProgress();
             if (!client.available())
             {
                 const unsigned long now = millis();

@@ -125,7 +125,9 @@ namespace GardenPump
         Serial.println(Config.wifiSsid);
         WiFi.setHostname(WifiHostname);
         setRuntimeStage(RuntimeStage::WifiConnect);
+        watchdogProgress();
         WifiStatus = WiFi.begin(Config.wifiSsid, Config.wifiPassword);
+        watchdogProgress();
         if (WifiStatus == WL_CONNECTED)
         {
             noteWifiReconnect();
@@ -171,10 +173,12 @@ namespace GardenPump
 
         LastNtpAttemptMs = millis();
         setRuntimeStage(RuntimeStage::Ntp);
+        watchdogProgress();
         sendNtpPacket();
         const unsigned long responseWaitStartedMs = millis();
         while ((millis() - responseWaitStartedMs) < 1000)
         {
+            watchdogProgress();
             delay(1);
         }
 

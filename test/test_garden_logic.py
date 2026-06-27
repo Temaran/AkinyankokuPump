@@ -411,7 +411,7 @@ class SourceIntegrationTests(unittest.TestCase):
         self.assertIn("backupChecksum()", runtime)
         self.assertIn("R_SYSTEM->PRCR = BackupRegisterUnlock", runtime)
         self.assertIn("R_SYSTEM->PRCR = BackupRegisterLock", runtime)
-        self.assertNotIn("WDT.begin", runtime)
+        self.assertIn("HardwareWatchdogEnabled = false", state)
         self.assertIn("void initializeRuntimeDiagnostics();", services)
         self.assertIn("void setRuntimeStage(RuntimeStage stage);", services)
         self.assertIn("void printRuntimeDiagnostics(Print& out);", services)
@@ -431,6 +431,61 @@ class SourceIntegrationTests(unittest.TestCase):
         self.assertIn('\\"previousResetStage\\":\\"', api)
         self.assertIn('\\"maxLoopMs\\":', api)
         self.assertIn("printRuntimeDiagnostics(client);", api)
+
+    def test_watchdog_plumbing_is_present_but_hardware_remains_disabled(self) -> None:
+        runtime = RUNTIME_DIAGNOSTICS_CPP.read_text()
+        state = FIRMWARE_STATE_H.read_text()
+        services = (ROOT / "src" / "FirmwareServices.h").read_text()
+        main = MAIN_CPP.read_text()
+
+        self.assertIn("WatchdogTimeoutMs = 8000", state)
+        self.assertIn("HardwareWatchdogEnabled = false", state)
+        self.assertIn("bool watchdogEnabled = false", state)
+        self.assertIn("#include <WDT.h>", runtime)
+        self.assertIn("void initializeWatchdog()", runtime)
+        self.assertIn("if (!HardwareWatchdogEnabled)", runtime)
+        self.assertIn("WDT.begin(WatchdogTimeoutMs)", runtime)
+        self.assertIn("void watchdogProgress()", runtime)
+        self.assertIn("WDT.refresh();", runtime)
+        self.assertIn("void initializeWatchdog();", services)
+        self.assertIn("void watchdogProgress();", services)
+        self.assertIn("initializeWatchdog();", main)
+        self.assertGreater(
+            main.index("initializeWatchdog();"),
+            main.index("playStartupDisplayAnimation();"),
+        )
+
+    def test_long_synchronous_waits_report_watchdog_progress(self) -> None:
+        logger = (ROOT / "src" / "CloudLogger.cpp").read_text()
+        http = HTTP_API_CPP.read_text()
+        network = (ROOT / "src" / "NetworkTime.cpp").read_text()
+        main = MAIN_CPP.read_text()
+
+        self.assertGreaterEqual(logger.count("watchdogProgress();"), 8)
+        self.assertGreaterEqual(network.count("watchdogProgress();"), 4)
+        self.assertIn("watchdogProgress();", http)
+        self.assertIn("watchdogProgress();", main)
+        self.assertEqual(
+            logger.count(
+                "const bool connected = remote.connect(parsed.host.c_str(), 443);"
+            ),
+            2,
+        )
+        self.assertGreaterEqual(
+            logger.count(
+                "const bool connected = remote.connect(parsed.host.c_str(), 443);\n"
+                "            watchdogProgress();"
+            ),
+            2,
+        )
+        self.assertRegex(
+            network,
+            re.compile(
+                r"watchdogProgress\(\);\s*"
+                r"WifiStatus = WiFi\.begin\([^)]+\);\s*"
+                r"watchdogProgress\(\);"
+            ),
+        )
 
     def test_web_client_waits_for_first_byte_but_keeps_line_reads_short(self) -> None:
         state = FIRMWARE_STATE_H.read_text()

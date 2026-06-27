@@ -1,5 +1,7 @@
 #include "FirmwareServices.h"
 
+#include <WDT.h>
+
 namespace GardenPump
 {
     namespace
@@ -134,6 +136,29 @@ namespace GardenPump
         printRuntimeDiagnostics(Serial);
     }
 
+    void initializeWatchdog()
+    {
+        if (!HardwareWatchdogEnabled)
+        {
+            Runtime.watchdogEnabled = false;
+            Serial.println(F("Hardware watchdog disabled."));
+            return;
+        }
+
+        Runtime.watchdogEnabled = WDT.begin(WatchdogTimeoutMs) != 0;
+        if (Runtime.watchdogEnabled)
+        {
+            WDT.refresh();
+            Serial.print(F("Watchdog enabled: "));
+            Serial.print(WDT.getTimeout());
+            Serial.println(F(" ms"));
+        }
+        else
+        {
+            Serial.println(F("Watchdog initialization failed."));
+        }
+    }
+
     void setRuntimeStage(RuntimeStage stage)
     {
         Runtime.currentStage = stage;
@@ -167,6 +192,15 @@ namespace GardenPump
             }
         }
         setRuntimeStage(RuntimeStage::Idle);
+        watchdogProgress();
+    }
+
+    void watchdogProgress()
+    {
+        if (Runtime.watchdogEnabled)
+        {
+            WDT.refresh();
+        }
     }
 
     void noteWebRequest()

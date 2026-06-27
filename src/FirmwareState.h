@@ -73,6 +73,8 @@ namespace GardenPump
     constexpr float CloudLogWaterDeltaMl = 100.0f;
     constexpr unsigned long CloudLogHttpTimeoutMs = 4000UL;
     constexpr bool RetainedRuntimeDiagnosticsEnabled = true;
+    constexpr unsigned long WatchdogTimeoutMs = 8000UL;
+    constexpr bool HardwareWatchdogEnabled = false;
     constexpr int RuntimeBackupRegisterOffset = 64;
 
     enum class RuntimeStage : uint8_t
@@ -112,6 +114,7 @@ namespace GardenPump
         uint32_t wifiReconnectCount = 0;
         uint32_t watchdogResetCount = 0;
         bool previousResetWasWatchdog = false;
+        bool watchdogEnabled = false;
     };
 
     extern const char WifiHostname[];

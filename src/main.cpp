@@ -82,6 +82,7 @@ void setup()
     Serial.println(F("Waiting for WiFi/NTP before starting normal operation."));
 
     playStartupDisplayAnimation();
+    initializeWatchdog();
 }
 
 void loop()
@@ -127,6 +128,7 @@ void loop()
         updateIrrigationScheduler();
         updateIrrigationDisplayAnimation();
         CurrentCell = (CurrentCell + 1) % NrCells;
+        watchdogProgress();
         handleWifi();
         updatePipelineHistory();
         completeControlLoopIteration();
@@ -137,6 +139,7 @@ void loop()
     if (DataState.outOfMemory)
     {
         renderGatherModeDisplay();
+        watchdogProgress();
         handleWifi();
         updatePipelineHistory();
         completeControlLoopIteration();
@@ -163,6 +166,7 @@ void loop()
 
     renderGatherModeDisplay();
 
+    watchdogProgress();
     handleWifi();
     updatePipelineHistory();
     completeControlLoopIteration();

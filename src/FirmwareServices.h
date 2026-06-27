@@ -6,9 +6,11 @@ namespace GardenPump
 {
     const __FlashStringHelper* runtimeStageName(RuntimeStage stage);
     void initializeRuntimeDiagnostics();
+    void initializeWatchdog();
     void setRuntimeStage(RuntimeStage stage);
     void beginControlLoopIteration();
     void completeControlLoopIteration();
+    void watchdogProgress();
     void noteWebRequest();
     void noteCloudAttempt();
     void noteCloudResult(bool success);
