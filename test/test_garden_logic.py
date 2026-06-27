@@ -316,9 +316,10 @@ class SourceIntegrationTests(unittest.TestCase):
         main = MAIN_CPP.read_text()
 
         self.assertIn("kWateringAnimationRevolutionMs = 1000", display)
-        self.assertIn("IrrigationAnimationFrames[GardenWateringAnimLength][4]", display)
+        self.assertIn("IrrigationAnimationFrames[2][GardenWateringAnimLength][4]", display)
+        self.assertIn("const int nextBuffer = 1 - ActiveIrrigationAnimationBuffer", display)
         self.assertIn("ArduinoLEDMatrix::loadPixelsToBuffer(", display)
-        self.assertIn("LedMatrix.loadSequence(IrrigationAnimationFrames)", display)
+        self.assertIn("LedMatrix.loadSequence(IrrigationAnimationFrames[nextBuffer])", display)
         self.assertIn("LedMatrix.play(true)", display)
         self.assertIn("updateIrrigationDisplayAnimation();", main)
         self.assertNotIn("Cells[zoneIdx].RenderFrom(LedMatrix", main)

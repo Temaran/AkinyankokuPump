@@ -13,7 +13,8 @@ namespace GardenPump
         constexpr unsigned long kWateringAnimationRevolutionMs = 1000;
         constexpr unsigned long kWateringAnimationFrameMs =
             kWateringAnimationRevolutionMs / GardenWateringAnimLength;
-        uint32_t IrrigationAnimationFrames[GardenWateringAnimLength][4] = {};
+        uint32_t IrrigationAnimationFrames[2][GardenWateringAnimLength][4] = {};
+        int ActiveIrrigationAnimationBuffer = 0;
         uint16_t LastIrrigationVisualState = 0;
         bool IrrigationDisplayInitialized = false;
 
@@ -100,6 +101,7 @@ namespace GardenPump
         }
 
         uint8_t pixels[kMatrixHeight][kMatrixWidth];
+        const int nextBuffer = 1 - ActiveIrrigationAnimationBuffer;
         for (int frameIdx = 0; frameIdx < GardenWateringAnimLength; ++frameIdx)
         {
             memset(pixels, 0, sizeof(pixels));
@@ -118,12 +120,13 @@ namespace GardenPump
             ArduinoLEDMatrix::loadPixelsToBuffer(
                 &pixels[0][0],
                 sizeof(pixels),
-                IrrigationAnimationFrames[frameIdx]);
-            IrrigationAnimationFrames[frameIdx][3] = kWateringAnimationFrameMs;
+                IrrigationAnimationFrames[nextBuffer][frameIdx]);
+            IrrigationAnimationFrames[nextBuffer][frameIdx][3] = kWateringAnimationFrameMs;
         }
 
-        LedMatrix.loadSequence(IrrigationAnimationFrames);
+        LedMatrix.loadSequence(IrrigationAnimationFrames[nextBuffer]);
         LedMatrix.play(true);
+        ActiveIrrigationAnimationBuffer = nextBuffer;
         LastIrrigationVisualState = visualState;
         IrrigationDisplayInitialized = true;
     }
