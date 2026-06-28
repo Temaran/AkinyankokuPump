@@ -39,6 +39,8 @@ namespace GardenPump
         client.print(Runtime.networkServiceStartFailureCount);
         client.print(F(",\"lastWebRequestMs\":"));
         client.print(Runtime.lastWebRequestMs);
+        client.print(F(",\"wifiSoftResets\":"));
+        client.print(Runtime.wifiSoftResetCount);
         client.print(F(",\"watchdogResets\":"));
         client.print(Runtime.watchdogResetCount);
         client.print(F(",\"previousResetWasWatchdog\":"));

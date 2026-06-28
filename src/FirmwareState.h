@@ -120,6 +120,7 @@ namespace GardenPump
         uint32_t cloudFailureCount = 0;
         uint32_t consecutiveCloudFailures = 0;
         uint32_t wifiReconnectCount = 0;
+        uint32_t wifiSoftResetCount = 0;
         uint32_t watchdogResetCount = 0;
         unsigned long lastWebRequestMs = 0;
         bool previousResetWasWatchdog = false;

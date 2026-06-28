@@ -381,5 +381,7 @@ namespace GardenPump
         out.println(Runtime.consecutiveCloudFailures);
         out.print(F("WiFi reconnects: "));
         out.println(Runtime.wifiReconnectCount);
+        out.print(F("WiFi soft resets: "));
+        out.println(Runtime.wifiSoftResetCount);
     }
 }

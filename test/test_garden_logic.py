@@ -695,15 +695,35 @@ class SourceIntegrationTests(unittest.TestCase):
 
     def test_repeated_cloud_failures_reset_the_wifi_session(self) -> None:
         logger = (ROOT / "src" / "CloudLogger.cpp").read_text()
+        state = FIRMWARE_STATE_H.read_text()
+        api = HTTP_API_CPP.read_text()
+        runtime = RUNTIME_DIAGNOSTICS_CPP.read_text()
 
         self.assertIn("Runtime.consecutiveCloudFailures >= 3", logger)
         recovery = logger.split("Runtime.consecutiveCloudFailures >= 3", 1)[1]
         self.assertIn("watchdogProgress();", recovery)
         self.assertIn("stopNetworkServices();", recovery)
         self.assertIn("WiFi.disconnect();", recovery)
+        self.assertIn("WiFi.end();", recovery)
+        self.assertIn("Runtime.wifiSoftResetCount++;", recovery)
         self.assertIn("LastWifiAttemptMs = 0;", recovery)
         self.assertIn("Runtime.consecutiveCloudFailures = 0;", recovery)
         self.assertIn('setCloudLogMessage(F("wifi reset after failures"))', recovery)
+        self.assertIn("uint32_t wifiSoftResetCount = 0", state)
+        self.assertIn('\\"wifiSoftResets\\":', api)
+        self.assertIn("WiFi soft resets:", runtime)
+
+    def test_failed_tls_connects_release_their_allocated_socket(self) -> None:
+        logger = (ROOT / "src" / "CloudLogger.cpp").read_text()
+
+        for section_name in ("CloudConnect", "HistoryConnect"):
+            section = logger.split(f"RuntimeStage::{section_name}", 1)[1]
+            failed = section.split("if (!connected)", 1)[1].split("}", 1)[0]
+            self.assertIn("remote.stop();", failed)
+            self.assertLess(
+                failed.index("remote.stop();"),
+                failed.index("return false;"),
+            )
 
     def test_cloud_logger_uses_connectivity_firmware_ca_bundle(self) -> None:
         logger = (ROOT / "src" / "CloudLogger.cpp").read_text()

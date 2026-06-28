@@ -297,6 +297,9 @@ namespace GardenPump
             endWatchdogNetworkGrace();
             if (!connected)
             {
+                watchdogProgress();
+                remote.stop();
+                watchdogProgress();
                 LastCloudLogHttpStatus = 0;
                 setCloudLogMessage(F("connect failed"));
                 return false;
@@ -363,6 +366,9 @@ namespace GardenPump
             endWatchdogNetworkGrace();
             if (!connected)
             {
+                watchdogProgress();
+                remote.stop();
+                watchdogProgress();
                 return false;
             }
 
@@ -585,6 +591,10 @@ namespace GardenPump
             stopNetworkServices();
             WiFi.disconnect();
             watchdogProgress();
+            WiFi.end();
+            watchdogProgress();
+            Runtime.wifiSoftResetCount++;
+            WifiStatus = WL_IDLE_STATUS;
             LastWifiAttemptMs = 0;
             Runtime.consecutiveCloudFailures = 0;
             setCloudLogMessage(F("wifi reset after failures"));
