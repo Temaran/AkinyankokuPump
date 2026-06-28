@@ -45,6 +45,7 @@ namespace GardenPump
     constexpr unsigned long WifiModemCommandTimeoutMs = 750;
     constexpr unsigned long WebClientFirstByteTimeoutMs = 1000;
     constexpr unsigned long WebClientLineReadTimeoutMs = 50;
+    constexpr uint8_t NetworkServiceStartFailureLimit = 3;
     constexpr unsigned long NtpRetryMs = 300000;
     constexpr unsigned long NtpStartupRetryMs = 10000;
     constexpr unsigned long StartupTimeSyncTimeoutMs = 60000;
@@ -68,13 +69,16 @@ namespace GardenPump
     constexpr float WaterEstimateFlowMlPerSecond = WaterEstimateFlowMlPerMinute / 60.0f;
     constexpr float WaterEstimateVelocityMps = 1.9f;
     constexpr unsigned long CloudLogEvaluateIntervalMs = 60UL * 1000UL;
-    constexpr unsigned long CloudLogHeartbeatMs = 10UL * 60UL * 1000UL;
+    constexpr unsigned long CloudLogHeartbeatMs = 9UL * 60UL * 1000UL;
+    constexpr unsigned long CloudLogStartupDelayMs = 60UL * 1000UL;
     constexpr float CloudLogMoistureDeltaPercent = 1.0f;
     constexpr float CloudLogWaterDeltaMl = 100.0f;
     constexpr unsigned long CloudLogHttpTimeoutMs = 4000UL;
     constexpr unsigned long CloudLogResponseTimeoutMs = 12000UL;
     constexpr bool RetainedRuntimeDiagnosticsEnabled = true;
     constexpr unsigned long WatchdogTimeoutMs = 5000UL;
+    constexpr unsigned long WatchdogNetworkGraceMs = 30000UL;
+    constexpr float WatchdogGraceTimerHz = 2.0f;
     constexpr bool HardwareWatchdogEnabled = true;
     constexpr int RuntimeBackupRegisterOffset = 64;
 
@@ -109,12 +113,15 @@ namespace GardenPump
         unsigned long maxLoopMs = 0;
         uint32_t loopCount = 0;
         uint32_t webRequestCount = 0;
+        uint32_t webServerRestartCount = 0;
+        uint32_t networkServiceStartFailureCount = 0;
         uint32_t cloudAttemptCount = 0;
         uint32_t cloudSuccessCount = 0;
         uint32_t cloudFailureCount = 0;
         uint32_t consecutiveCloudFailures = 0;
         uint32_t wifiReconnectCount = 0;
         uint32_t watchdogResetCount = 0;
+        unsigned long lastWebRequestMs = 0;
         bool previousResetWasWatchdog = false;
         bool watchdogEnabled = false;
     };

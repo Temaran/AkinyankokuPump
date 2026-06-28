@@ -9,19 +9,68 @@ namespace GardenPump
 {
     namespace
     {
-        void startNetworkServices()
+        uint8_t ConsecutiveNetworkServiceStartFailures = 0;
+
+        bool startNetworkServices()
         {
             if (!WebServerStarted)
             {
+                watchdogProgress();
                 WebServer.begin();
-                WebServerStarted = true;
+                watchdogProgress();
+                WebServerStarted = static_cast<bool>(WebServer);
+                if (WebServerStarted)
+                {
+                    ConsecutiveNetworkServiceStartFailures = 0;
+                    Runtime.webServerRestartCount++;
+                }
+                else
+                {
+                    ConsecutiveNetworkServiceStartFailures++;
+                    Runtime.networkServiceStartFailureCount++;
+                }
             }
             if (!UdpStarted)
             {
                 Udp.begin(NtpLocalPort);
                 UdpStarted = true;
             }
+            return WebServerStarted;
         }
+
+        void recoverNetworkServicesIfNeeded()
+        {
+            if (startNetworkServices())
+            {
+                return;
+            }
+
+            if (ConsecutiveNetworkServiceStartFailures >= NetworkServiceStartFailureLimit)
+            {
+                stopNetworkServices();
+                watchdogProgress();
+                WiFi.disconnect();
+                watchdogProgress();
+                LastWifiAttemptMs = 0;
+                ConsecutiveNetworkServiceStartFailures = 0;
+            }
+        }
+    }
+
+    void stopNetworkServices()
+    {
+        watchdogProgress();
+        if (WebServerStarted || static_cast<bool>(WebServer))
+        {
+            WebServer.end();
+        }
+        WebServerStarted = false;
+        if (UdpStarted)
+        {
+            Udp.stop();
+        }
+        UdpStarted = false;
+        watchdogProgress();
     }
 
     bool isLeapYear(int year)
@@ -105,10 +154,11 @@ namespace GardenPump
 
         if (WiFi.status() == WL_CONNECTED)
         {
-            startNetworkServices();
+            recoverNetworkServicesIfNeeded();
             return;
         }
 
+        stopNetworkServices();
         if ((millis() - LastWifiAttemptMs) < WifiRetryMs && LastWifiAttemptMs != 0)
         {
             return;
@@ -131,7 +181,7 @@ namespace GardenPump
         if (WifiStatus == WL_CONNECTED)
         {
             noteWifiReconnect();
-            startNetworkServices();
+            recoverNetworkServicesIfNeeded();
             printWifiStatus();
             syncTimeFromNtp();
         }

@@ -13,6 +13,8 @@ namespace GardenPump
     void beginControlLoopIteration();
     void completeControlLoopIteration();
     void watchdogProgress();
+    bool beginWatchdogNetworkGrace();
+    void endWatchdogNetworkGrace();
     void noteWebRequest();
     void noteCloudAttempt();
     void noteCloudResult(bool success);
@@ -115,6 +117,7 @@ namespace GardenPump
     uint32_t getCurrentTimestamp();
     String currentTimeString();
     void initializeWifiModem();
+    void stopNetworkServices();
     void connectWifiIfNeeded();
     void sendNtpPacket();
     bool syncTimeFromNtp();

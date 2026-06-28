@@ -286,8 +286,15 @@ namespace GardenPump
             remote.setConnectionTimeout(CloudLogHttpTimeoutMs);
             setRuntimeStage(RuntimeStage::CloudConnect);
             watchdogProgress();
+            if (!beginWatchdogNetworkGrace())
+            {
+                LastCloudLogHttpStatus = 0;
+                setCloudLogMessage(F("watchdog grace unavailable"));
+                return false;
+            }
             const bool connected = remote.connect(parsed.host.c_str(), 443);
             watchdogProgress();
+            endWatchdogNetworkGrace();
             if (!connected)
             {
                 LastCloudLogHttpStatus = 0;
@@ -347,8 +354,13 @@ namespace GardenPump
             remote.setConnectionTimeout(CloudLogHttpTimeoutMs);
             setRuntimeStage(RuntimeStage::HistoryConnect);
             watchdogProgress();
+            if (!beginWatchdogNetworkGrace())
+            {
+                return false;
+            }
             const bool connected = remote.connect(parsed.host.c_str(), 443);
             watchdogProgress();
+            endWatchdogNetworkGrace();
             if (!connected)
             {
                 return false;
@@ -570,10 +582,9 @@ namespace GardenPump
         {
             setRuntimeStage(RuntimeStage::WifiConnect);
             watchdogProgress();
+            stopNetworkServices();
             WiFi.disconnect();
             watchdogProgress();
-            WebServerStarted = false;
-            UdpStarted = false;
             LastWifiAttemptMs = 0;
             Runtime.consecutiveCloudFailures = 0;
             setCloudLogMessage(F("wifi reset after failures"));
@@ -584,6 +595,10 @@ namespace GardenPump
     void updateCloudLogger()
     {
         if (!OperationsStarted || DataGatheringActive)
+        {
+            return;
+        }
+        if ((millis() - StartupStartedAtMs) < CloudLogStartupDelayMs)
         {
             return;
         }

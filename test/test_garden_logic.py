@@ -513,6 +513,42 @@ class SourceIntegrationTests(unittest.TestCase):
             ),
         )
 
+    def test_tls_connect_uses_bounded_interrupt_driven_watchdog_grace(self) -> None:
+        runtime = RUNTIME_DIAGNOSTICS_CPP.read_text()
+        state = FIRMWARE_STATE_H.read_text()
+        services = (ROOT / "src" / "FirmwareServices.h").read_text()
+        logger = (ROOT / "src" / "CloudLogger.cpp").read_text()
+
+        self.assertIn("WatchdogNetworkGraceMs = 30000UL", state)
+        self.assertIn("WatchdogGraceTimerHz = 2.0f", state)
+        self.assertIn("#include <FspTimer.h>", runtime)
+        self.assertIn("FspTimer WatchdogGraceTimer", runtime)
+        self.assertIn("volatile uint32_t WatchdogGraceTicksRemaining", runtime)
+        self.assertIn("watchdogGraceTimerCallback", runtime)
+        self.assertIn("--WatchdogGraceTicksRemaining;", runtime)
+        self.assertIn("FspTimer::get_available_timer(type)", runtime)
+        self.assertIn("WatchdogGraceTimer.setup_overflow_irq()", runtime)
+        self.assertIn("WatchdogGraceTimer.open()", runtime)
+        self.assertIn("WatchdogGraceTimer.start()", runtime)
+        self.assertIn("bool beginWatchdogNetworkGrace();", services)
+        self.assertIn("void endWatchdogNetworkGrace();", services)
+        self.assertEqual(logger.count("beginWatchdogNetworkGrace()"), 2)
+        self.assertEqual(logger.count("endWatchdogNetworkGrace();"), 2)
+        self.assertEqual(
+            logger.count('setCloudLogMessage(F("watchdog grace unavailable"))'),
+            1,
+        )
+        for section_name in ("CloudConnect", "HistoryConnect"):
+            section = logger.split(f"RuntimeStage::{section_name}", 1)[1]
+            self.assertLess(
+                section.index("beginWatchdogNetworkGrace()"),
+                section.index("remote.connect("),
+            )
+            self.assertLess(
+                section.index("remote.connect("),
+                section.index("endWatchdogNetworkGrace();"),
+            )
+
     def test_web_client_waits_for_first_byte_but_keeps_line_reads_short(self) -> None:
         state = FIRMWARE_STATE_H.read_text()
         text = HTTP_API_CPP.read_text()
@@ -527,9 +563,51 @@ class SourceIntegrationTests(unittest.TestCase):
         connected_branch = network.split(
             "if (WiFi.status() == WL_CONNECTED)", 1
         )[1].split("return;", 1)[0]
-        self.assertIn("startNetworkServices();", connected_branch)
+        self.assertIn("recoverNetworkServicesIfNeeded();", connected_branch)
         self.assertIn("WebServer.begin();", network)
         self.assertIn("Udp.begin(NtpLocalPort);", network)
+
+    def test_network_services_recover_from_stale_esp_sockets(self) -> None:
+        state = FIRMWARE_STATE_H.read_text()
+        services = (ROOT / "src" / "FirmwareServices.h").read_text()
+        network = (ROOT / "src" / "NetworkTime.cpp").read_text()
+        logger = (ROOT / "src" / "CloudLogger.cpp").read_text()
+        runtime = RUNTIME_DIAGNOSTICS_CPP.read_text()
+        api = HTTP_API_CPP.read_text()
+
+        self.assertIn("NetworkServiceStartFailureLimit = 3", state)
+        self.assertIn("uint32_t webServerRestartCount = 0", state)
+        self.assertIn("uint32_t networkServiceStartFailureCount = 0", state)
+        self.assertIn("unsigned long lastWebRequestMs = 0", state)
+        self.assertIn("void stopNetworkServices();", services)
+
+        self.assertIn("WebServer.end();", network)
+        self.assertIn("Udp.stop();", network)
+        self.assertIn("WebServerStarted = false;", network)
+        self.assertIn("UdpStarted = false;", network)
+        self.assertIn("WebServerStarted = static_cast<bool>(WebServer);", network)
+        self.assertIn("Runtime.webServerRestartCount++;", network)
+        self.assertIn("Runtime.networkServiceStartFailureCount++;", network)
+        self.assertNotIn("NetworkServiceRefreshMs", network)
+        self.assertNotIn("requestNetworkServiceRefresh();", api)
+
+        disconnected = network.split(
+            "if (WiFi.status() == WL_CONNECTED)", 1
+        )[1].split("LastWifiAttemptMs = millis();", 1)[0]
+        self.assertIn("stopNetworkServices();", disconnected)
+
+        recovery = logger.split("Runtime.consecutiveCloudFailures >= 3", 1)[1]
+        self.assertLess(
+            recovery.index("stopNetworkServices();"),
+            recovery.index("WiFi.disconnect();"),
+        )
+        self.assertNotIn("WebServerStarted = false;", recovery)
+        self.assertNotIn("UdpStarted = false;", recovery)
+
+        self.assertIn("Runtime.lastWebRequestMs = millis();", runtime)
+        self.assertIn('\\"webServerRestarts\\":', api)
+        self.assertIn('\\"networkServiceStartFailures\\":', api)
+        self.assertIn('\\"lastWebRequestMs\\":', api)
 
     def test_network_work_is_bounded_and_runs_after_irrigation_display(self) -> None:
         state = FIRMWARE_STATE_H.read_text()
@@ -560,7 +638,7 @@ class SourceIntegrationTests(unittest.TestCase):
     def test_dashboard_does_not_queue_pipeline_polling(self) -> None:
         ui = WEB_UI_CPP.read_text()
 
-        self.assertIn("setInterval(status,1000)", ui)
+        self.assertIn("setInterval(status,5000)", ui)
         self.assertNotIn("setInterval(pipelineLog", ui)
 
     def test_cloud_logging_uses_smart_minute_evaluation_and_ten_minute_heartbeat(self) -> None:
@@ -574,7 +652,8 @@ class SourceIntegrationTests(unittest.TestCase):
         self.assertIn("ConfigVersion = 7", state)
         self.assertIn("LogStartAddress = 512", state)
         self.assertIn("CloudLogEvaluateIntervalMs = 60UL * 1000UL", state)
-        self.assertIn("CloudLogHeartbeatMs = 10UL * 60UL * 1000UL", state)
+        self.assertIn("CloudLogHeartbeatMs = 9UL * 60UL * 1000UL", state)
+        self.assertIn("CloudLogStartupDelayMs = 60UL * 1000UL", state)
         self.assertIn("CloudLogMoistureDeltaPercent = 1.0f", state)
         self.assertIn("CloudLogWaterDeltaMl = 100.0f", state)
         self.assertIn("CloudLogResponseTimeoutMs = 12000UL", state)
@@ -603,6 +682,7 @@ class SourceIntegrationTests(unittest.TestCase):
         self.assertIn("Connectivity firmware:", network)
         self.assertIn("WIFI_FIRMWARE_LATEST_VERSION", network)
         self.assertIn("!TimeSynced && !syncTimeFromNtp()", logger)
+        self.assertIn("(millis() - StartupStartedAtMs) < CloudLogStartupDelayMs", logger)
         self.assertNotIn("GoogleTrustServicesRootR1", logger)
         self.assertNotIn("remote.setCACert(", logger)
         self.assertGreaterEqual(logger.count("WiFiSSLClient remote;"), 2)
@@ -619,9 +699,8 @@ class SourceIntegrationTests(unittest.TestCase):
         self.assertIn("Runtime.consecutiveCloudFailures >= 3", logger)
         recovery = logger.split("Runtime.consecutiveCloudFailures >= 3", 1)[1]
         self.assertIn("watchdogProgress();", recovery)
+        self.assertIn("stopNetworkServices();", recovery)
         self.assertIn("WiFi.disconnect();", recovery)
-        self.assertIn("WebServerStarted = false;", recovery)
-        self.assertIn("UdpStarted = false;", recovery)
         self.assertIn("LastWifiAttemptMs = 0;", recovery)
         self.assertIn("Runtime.consecutiveCloudFailures = 0;", recovery)
         self.assertIn('setCloudLogMessage(F("wifi reset after failures"))', recovery)

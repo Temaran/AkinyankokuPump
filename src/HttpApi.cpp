@@ -33,6 +33,12 @@ namespace GardenPump
         client.print(Runtime.lastLoopMs);
         client.print(F(",\"maxLoopMs\":"));
         client.print(Runtime.maxLoopMs);
+        client.print(F(",\"webServerRestarts\":"));
+        client.print(Runtime.webServerRestartCount);
+        client.print(F(",\"networkServiceStartFailures\":"));
+        client.print(Runtime.networkServiceStartFailureCount);
+        client.print(F(",\"lastWebRequestMs\":"));
+        client.print(Runtime.lastWebRequestMs);
         client.print(F(",\"watchdogResets\":"));
         client.print(Runtime.watchdogResetCount);
         client.print(F(",\"previousResetWasWatchdog\":"));

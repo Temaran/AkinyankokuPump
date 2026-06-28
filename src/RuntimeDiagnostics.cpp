@@ -1,5 +1,6 @@
 #include "FirmwareServices.h"
 
+#include <FspTimer.h>
 #include <WDT.h>
 
 namespace GardenPump
@@ -17,6 +18,61 @@ namespace GardenPump
         constexpr int BackupWatchdogCountOffset = RuntimeBackupRegisterOffset + 10;
         constexpr int BackupMaxLoopOffset = RuntimeBackupRegisterOffset + 14;
         constexpr int BackupChecksumOffset = RuntimeBackupRegisterOffset + 18;
+        constexpr uint32_t WatchdogGraceTickCount =
+            static_cast<uint32_t>(
+                (WatchdogNetworkGraceMs * WatchdogGraceTimerHz) / 1000.0f);
+
+        FspTimer WatchdogGraceTimer;
+        volatile uint32_t WatchdogGraceTicksRemaining = 0;
+        bool WatchdogGraceTimerReady = false;
+
+        void watchdogGraceTimerCallback(timer_callback_args_t*)
+        {
+            if (WatchdogGraceTicksRemaining == 0)
+            {
+                return;
+            }
+
+            WDT.refresh();
+            --WatchdogGraceTicksRemaining;
+        }
+
+        bool initializeWatchdogGraceTimer()
+        {
+            uint8_t type = 0;
+            const int8_t channel = FspTimer::get_available_timer(type);
+            if (channel < 0)
+            {
+                return false;
+            }
+
+            if (!WatchdogGraceTimer.begin(
+                    TIMER_MODE_PERIODIC,
+                    type,
+                    channel,
+                    WatchdogGraceTimerHz,
+                    50.0f,
+                    watchdogGraceTimerCallback,
+                    nullptr))
+            {
+                return false;
+            }
+            if (!WatchdogGraceTimer.setup_overflow_irq())
+            {
+                return false;
+            }
+            if (!WatchdogGraceTimer.open())
+            {
+                return false;
+            }
+            if (!WatchdogGraceTimer.start())
+            {
+                WatchdogGraceTimer.stop();
+                WatchdogGraceTimer.close();
+                return false;
+            }
+            return true;
+        }
 
         uint32_t readBackupU32(int offset)
         {
@@ -159,9 +215,12 @@ namespace GardenPump
         if (Runtime.watchdogEnabled)
         {
             WDT.refresh();
+            WatchdogGraceTimerReady = initializeWatchdogGraceTimer();
             Serial.print(F("Watchdog enabled: "));
             Serial.print(WDT.getTimeout());
             Serial.println(F(" ms"));
+            Serial.print(F("Watchdog network grace timer: "));
+            Serial.println(WatchdogGraceTimerReady ? F("ready") : F("unavailable"));
         }
         else
         {
@@ -231,9 +290,35 @@ namespace GardenPump
         }
     }
 
+    bool beginWatchdogNetworkGrace()
+    {
+        if (!Runtime.watchdogEnabled || !WatchdogGraceTimerReady)
+        {
+            return false;
+        }
+
+        noInterrupts();
+        WatchdogGraceTicksRemaining = WatchdogGraceTickCount;
+        WDT.refresh();
+        interrupts();
+        return true;
+    }
+
+    void endWatchdogNetworkGrace()
+    {
+        noInterrupts();
+        WatchdogGraceTicksRemaining = 0;
+        if (Runtime.watchdogEnabled)
+        {
+            WDT.refresh();
+        }
+        interrupts();
+    }
+
     void noteWebRequest()
     {
         Runtime.webRequestCount++;
+        Runtime.lastWebRequestMs = millis();
     }
 
     void noteCloudAttempt()
@@ -280,6 +365,12 @@ namespace GardenPump
         out.println(Runtime.maxLoopMs);
         out.print(F("Web requests: "));
         out.println(Runtime.webRequestCount);
+        out.print(F("Web server starts/restarts: "));
+        out.println(Runtime.webServerRestartCount);
+        out.print(F("Network service start failures: "));
+        out.println(Runtime.networkServiceStartFailureCount);
+        out.print(F("Last web request ms: "));
+        out.println(Runtime.lastWebRequestMs);
         out.print(F("Cloud attempts/success/failure/consecutive: "));
         out.print(Runtime.cloudAttemptCount);
         out.print('/');
